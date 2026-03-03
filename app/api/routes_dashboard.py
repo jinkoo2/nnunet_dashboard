@@ -10,6 +10,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>nnUNet Dashboard</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jsoneditor/10.1.0/jsoneditor.min.css">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
@@ -80,12 +81,14 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .file-tab:hover { color: #e2e8f0; }
   .file-tab.active { color: #60a5fa; background: #1e293b; border-color: #3b82f6; }
   .file-tab.missing { color: #475569; cursor: default; }
-  .file-viewer { flex: 1; overflow-y: auto; background: #0f172a; border: 1px solid #334155; border-radius: 0 6px 6px 6px; padding: 14px; }
+  .file-viewer { flex: 1; overflow-y: auto; background: #fff; border: 1px solid #334155; border-radius: 0 6px 6px 6px; padding: 8px; }
+  .file-viewer .jsoneditor { border: none; }
+  .file-viewer .json-summary { padding: 8px 6px 0; }
   .json-summary { margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
-  .json-kv { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 6px 12px; font-size: 0.78rem; }
+  .json-kv { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 12px; font-size: 0.78rem; }
   .json-kv .k { color: #64748b; margin-right: 4px; }
-  .json-kv .v { color: #e2e8f0; font-weight: 500; }
-  .json-pre { font-family: 'Courier New', monospace; font-size: 0.75rem; color: #94a3b8; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
+  .json-kv .v { color: #1e293b; font-weight: 500; }
+  .json-pre { font-family: 'Courier New', monospace; font-size: 0.75rem; color: #334155; white-space: pre-wrap; word-break: break-all; line-height: 1.6; padding: 8px; }
 </style>
 </head>
 <body>
@@ -609,17 +612,28 @@ function renderWorkers() {
 // Dataset file viewer
 let fileCache = {};
 let currentFilesDatasetId = null;
+let currentJsonEditor = null;
+let jsonEditorLoaded = false;
+
+function loadJsonEditor() {
+  if (jsonEditorLoaded) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jsoneditor/10.1.0/jsoneditor.min.js';
+    s.onload = () => { jsonEditorLoaded = true; resolve(); };
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
 
 async function openDatasetFiles(datasetId) {
   currentFilesDatasetId = datasetId;
   const d = state.datasets.find(d => d.id === datasetId);
   document.getElementById('files-modal-title').textContent = d ? d.name : datasetId;
-  // Reset tabs
   document.querySelectorAll('.file-tab').forEach(t => {
     t.classList.remove('active', 'missing');
     if (t.dataset.file === 'dataset.json') t.classList.add('active');
   });
-  document.getElementById('file-viewer-content').innerHTML = '<div style="color:#64748b;font-size:0.82rem">Loading…</div>';
   openModal('modal-dataset-files');
   await loadFileTab('dataset.json');
 }
@@ -630,6 +644,11 @@ async function loadFileTab(name) {
   document.querySelectorAll('.file-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.file === name);
   });
+  // Destroy existing JSONEditor before replacing the DOM
+  if (currentJsonEditor) {
+    try { currentJsonEditor.destroy(); } catch(e) {}
+    currentJsonEditor = null;
+  }
   const viewer = document.getElementById('file-viewer-content');
   if (fileCache[did] && name in fileCache[did]) {
     renderFileContent(name, fileCache[did][name]);
@@ -658,37 +677,37 @@ function renderFileContent(name, data) {
     return;
   }
   const content = data.content;
-  let html = '';
+  // Build optional summary bar for dataset.json
+  let summaryHtml = '';
   if (name === 'dataset.json' && typeof content === 'object' && content !== null) {
     const kvItems = [];
     if (content.name) kvItems.push(['Name', content.name]);
     if (content.description) kvItems.push(['Description', content.description]);
-    if (content.reference) kvItems.push(['Reference', content.reference]);
     if (content.numTraining != null) kvItems.push(['Training', content.numTraining + ' images']);
     if (content.numTest != null) kvItems.push(['Test', content.numTest + ' images']);
     const mods = content.modality || content.channel_names;
-    if (mods && typeof mods === 'object') {
-      kvItems.push(['Modality', Object.values(mods).join(', ')]);
-    }
-    if (content.labels && typeof content.labels === 'object') {
-      kvItems.push(['Labels', Object.keys(content.labels).length]);
-    }
+    if (mods && typeof mods === 'object') kvItems.push(['Modality', Object.values(mods).join(', ')]);
+    if (content.labels && typeof content.labels === 'object') kvItems.push(['Labels', Object.keys(content.labels).length]);
     if (kvItems.length > 0) {
-      html += '<div class="json-summary">' + kvItems.map(([k, v]) =>
+      summaryHtml = '<div class="json-summary">' + kvItems.map(([k, v]) =>
         `<div class="json-kv"><span class="k">${esc(k)}:</span><span class="v">${esc(String(v))}</span></div>`
       ).join('') + '</div>';
     }
-    if (content.labels && typeof content.labels === 'object') {
-      html += '<div style="margin-bottom:10px;font-size:0.78rem;color:#94a3b8"><strong>Labels:</strong> ';
-      html += Object.entries(content.labels).map(([k, v]) =>
-        `<span style="background:#1e293b;border:1px solid #334155;border-radius:4px;padding:2px 7px;margin:2px;display:inline-block">${esc(k)}</span>`
-      ).join('');
-      html += '</div>';
-    }
   }
-  const jsonStr = typeof content === 'object' ? JSON.stringify(content, null, 2) : String(content);
-  html += `<div class="json-pre">${esc(jsonStr)}</div>`;
-  viewer.innerHTML = html;
+  viewer.innerHTML = summaryHtml + '<div id="json-editor-mount"></div>';
+  const mount = document.getElementById('json-editor-mount');
+  if (typeof content === 'object' && content !== null) {
+    loadJsonEditor().then(() => {
+      if (!mount || !document.body.contains(mount)) return;
+      const editor = new JSONEditor(mount, { mode: 'view', navigationBar: false });
+      editor.set(content);
+      currentJsonEditor = editor;
+    }).catch(() => {
+      if (mount) mount.innerHTML = `<pre class="json-pre">${esc(JSON.stringify(content, null, 2))}</pre>`;
+    });
+  } else {
+    mount.innerHTML = `<pre class="json-pre">${esc(String(content))}</pre>`;
+  }
 }
 
 // Create job modal
