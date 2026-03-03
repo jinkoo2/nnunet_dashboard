@@ -199,7 +199,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 </div>
 
 <script>
-const API_KEY = '';  // API key not used for dashboard — dashboard uses Basic Auth; API calls go through same session
+const API_KEY = '__DASHBOARD_API_KEY__';
 
 // State
 let state = { datasets: [], jobs: [], models: [], workers: [] };
@@ -218,7 +218,7 @@ function switchTab(name) {
 // Fetch helpers
 async function apiFetch(path, opts = {}) {
   const res = await fetch('/api' + path, {
-    headers: { 'X-Api-Key': document.cookie.match(/api_key=([^;]+)/)?.[1] || '', ...opts.headers },
+    headers: { 'X-Api-Key': API_KEY, ...opts.headers },
     ...opts
   });
   if (!res.ok) throw new Error(await res.text());
@@ -637,4 +637,6 @@ def root():
 
 @router.get("/dashboard", response_class=HTMLResponse)
 def dashboard(_user: str = Depends(verify_dashboard)):
-    return HTMLResponse(content=DASHBOARD_HTML)
+    from app.core.config import settings
+    html = DASHBOARD_HTML.replace("__DASHBOARD_API_KEY__", settings.API_KEY)
+    return HTMLResponse(content=html)
