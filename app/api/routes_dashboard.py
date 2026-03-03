@@ -239,7 +239,10 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div class="modal modal-wide">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-shrink:0">
       <h2 id="files-modal-title">Dataset Files</h2>
-      <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-dataset-files')">✕ Close</button>
+      <div style="display:flex;gap:8px">
+        <button id="btn-copy-json" class="btn btn-secondary btn-sm" onclick="copyFileJson()">Copy JSON</button>
+        <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-dataset-files')">✕ Close</button>
+      </div>
     </div>
     <div class="file-tabs" id="file-tabs">
       <div class="file-tab active" data-file="dataset.json" onclick="loadFileTab('dataset.json')">dataset.json</div>
@@ -632,6 +635,7 @@ function renderWorkers() {
 // Dataset file viewer
 let fileCache = {};
 let currentFilesDatasetId = null;
+let currentFileTab = 'dataset.json';
 let currentJsonEditor = null;
 let jsonEditorLoaded = false;
 
@@ -658,7 +662,26 @@ async function openDatasetFiles(datasetId) {
   await loadFileTab('dataset.json');
 }
 
+async function copyFileJson() {
+  const cached = fileCache[currentFilesDatasetId]?.[currentFileTab];
+  if (!cached) return;
+  const content = cached.content;
+  const jsonStr = typeof content === 'object' ? JSON.stringify(content, null, 2) : String(content);
+  try {
+    await navigator.clipboard.writeText(jsonStr);
+    const btn = document.getElementById('btn-copy-json');
+    const orig = btn.textContent;
+    btn.textContent = '✓ Copied!';
+    btn.style.background = '#059669';
+    btn.style.color = '#fff';
+    setTimeout(() => { btn.textContent = orig; btn.style.background = ''; btn.style.color = ''; }, 2000);
+  } catch(e) {
+    alert('Copy failed: ' + e.message);
+  }
+}
+
 async function loadFileTab(name) {
+  currentFileTab = name;
   const did = currentFilesDatasetId;
   if (!did) return;
   document.querySelectorAll('.file-tab').forEach(t => {
