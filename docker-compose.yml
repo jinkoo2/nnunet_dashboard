@@ -2,7 +2,7 @@ services:
   api:
     build: .
     ports:
-      - "9100:9100"
+      - "9333:9333"
     volumes:
       - ./data:/app/data
     env_file:
