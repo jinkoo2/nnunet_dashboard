@@ -95,6 +95,18 @@ def init_db():
                 approved_at     TEXT,
                 created_at      TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS uploads (
+                id              TEXT PRIMARY KEY,
+                name            TEXT NOT NULL,
+                description     TEXT,
+                submitted_by    TEXT,
+                total_chunks    INTEGER NOT NULL,
+                total_size      INTEGER,
+                received_chunks TEXT DEFAULT '[]',
+                created_at      TEXT,
+                status          TEXT DEFAULT 'in_progress'
+            );
         """)
         conn.commit()
         logger.info("Database initialized successfully")
