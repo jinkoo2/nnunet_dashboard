@@ -73,6 +73,19 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .sub-table { font-size: 0.78rem; }
   .sub-table th { font-size: 0.72rem; padding: 6px 10px; }
   .sub-table td { padding: 6px 10px; }
+  .modal-wide { width: 780px; max-height: 88vh; display: flex; flex-direction: column; }
+  .modal-wide h2 { flex-shrink: 0; }
+  .file-tabs { display: flex; gap: 2px; margin-bottom: 14px; flex-shrink: 0; }
+  .file-tab { padding: 6px 14px; border-radius: 6px 6px 0 0; font-size: 0.8rem; font-weight: 500; cursor: pointer; color: #94a3b8; background: #0f172a; border: 1px solid #334155; border-bottom: none; }
+  .file-tab:hover { color: #e2e8f0; }
+  .file-tab.active { color: #60a5fa; background: #1e293b; border-color: #3b82f6; }
+  .file-tab.missing { color: #475569; cursor: default; }
+  .file-viewer { flex: 1; overflow-y: auto; background: #0f172a; border: 1px solid #334155; border-radius: 0 6px 6px 6px; padding: 14px; }
+  .json-summary { margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+  .json-kv { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 6px 12px; font-size: 0.78rem; }
+  .json-kv .k { color: #64748b; margin-right: 4px; }
+  .json-kv .v { color: #e2e8f0; font-weight: 500; }
+  .json-pre { font-family: 'Courier New', monospace; font-size: 0.75rem; color: #94a3b8; white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
 </style>
 </head>
 <body>
@@ -198,6 +211,24 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   </div>
 </div>
 
+<!-- DATASET FILES MODAL -->
+<div class="modal-overlay" id="modal-dataset-files">
+  <div class="modal modal-wide">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-shrink:0">
+      <h2 id="files-modal-title">Dataset Files</h2>
+      <button class="btn btn-secondary btn-sm" onclick="closeModal('modal-dataset-files')">✕ Close</button>
+    </div>
+    <div class="file-tabs" id="file-tabs">
+      <div class="file-tab active" data-file="dataset.json" onclick="loadFileTab('dataset.json')">dataset.json</div>
+      <div class="file-tab" data-file="dataset_fingerprint.json" onclick="loadFileTab('dataset_fingerprint.json')">dataset_fingerprint.json</div>
+      <div class="file-tab" data-file="nnUNetPlans.json" onclick="loadFileTab('nnUNetPlans.json')">nnUNetPlans.json</div>
+    </div>
+    <div class="file-viewer" id="file-viewer-content">
+      <div style="color:#64748b;font-size:0.82rem">Loading…</div>
+    </div>
+  </div>
+</div>
+
 <script>
 const API_KEY = '__DASHBOARD_API_KEY__';
 
@@ -313,7 +344,10 @@ function renderDatasets() {
       <td>${fmtDate(d.submitted_at)}</td>
       <td>${d.has_plan ? '<span class="badge badge-green">has plan</span>' : '<span class="badge badge-gray">no plan</span>'}</td>
       <td>${countJobsForDataset(d.id)}</td>
-      <td><button class="btn btn-primary btn-sm" onclick="openCreateJob('${d.id}','${esc(d.name)}')">+ Create Job</button></td>
+      <td style="white-space:nowrap">
+        <button class="btn btn-secondary btn-sm" onclick="openDatasetFiles('${d.id}')">Files</button>
+        <button class="btn btn-primary btn-sm" onclick="openCreateJob('${d.id}','${esc(d.name)}')">+ Create Job</button>
+      </td>
     </tr>
   `).join('');
 }
@@ -570,6 +604,91 @@ function renderWorkers() {
         <td>${relTime(w.last_heartbeat)}</td>
       </tr>`;
   }).join('');
+}
+
+// Dataset file viewer
+let fileCache = {};
+let currentFilesDatasetId = null;
+
+async function openDatasetFiles(datasetId) {
+  currentFilesDatasetId = datasetId;
+  const d = state.datasets.find(d => d.id === datasetId);
+  document.getElementById('files-modal-title').textContent = d ? d.name : datasetId;
+  // Reset tabs
+  document.querySelectorAll('.file-tab').forEach(t => {
+    t.classList.remove('active', 'missing');
+    if (t.dataset.file === 'dataset.json') t.classList.add('active');
+  });
+  document.getElementById('file-viewer-content').innerHTML = '<div style="color:#64748b;font-size:0.82rem">Loading…</div>';
+  openModal('modal-dataset-files');
+  await loadFileTab('dataset.json');
+}
+
+async function loadFileTab(name) {
+  const did = currentFilesDatasetId;
+  if (!did) return;
+  document.querySelectorAll('.file-tab').forEach(t => {
+    t.classList.toggle('active', t.dataset.file === name);
+  });
+  const viewer = document.getElementById('file-viewer-content');
+  if (fileCache[did] && name in fileCache[did]) {
+    renderFileContent(name, fileCache[did][name]);
+    return;
+  }
+  viewer.innerHTML = '<div style="color:#64748b;font-size:0.82rem">Loading…</div>';
+  try {
+    const data = await apiFetch('/datasets/' + did + '/file?name=' + encodeURIComponent(name));
+    if (!fileCache[did]) fileCache[did] = {};
+    fileCache[did][name] = data;
+    renderFileContent(name, data);
+  } catch (e) {
+    if (!fileCache[did]) fileCache[did] = {};
+    fileCache[did][name] = null;
+    renderFileContent(name, null);
+    document.querySelectorAll('.file-tab').forEach(t => {
+      if (t.dataset.file === name) t.classList.add('missing');
+    });
+  }
+}
+
+function renderFileContent(name, data) {
+  const viewer = document.getElementById('file-viewer-content');
+  if (!data) {
+    viewer.innerHTML = '<div style="color:#475569;font-size:0.82rem;padding:20px 0">File not found in dataset ZIP.</div>';
+    return;
+  }
+  const content = data.content;
+  let html = '';
+  if (name === 'dataset.json' && typeof content === 'object' && content !== null) {
+    const kvItems = [];
+    if (content.name) kvItems.push(['Name', content.name]);
+    if (content.description) kvItems.push(['Description', content.description]);
+    if (content.reference) kvItems.push(['Reference', content.reference]);
+    if (content.numTraining != null) kvItems.push(['Training', content.numTraining + ' images']);
+    if (content.numTest != null) kvItems.push(['Test', content.numTest + ' images']);
+    const mods = content.modality || content.channel_names;
+    if (mods && typeof mods === 'object') {
+      kvItems.push(['Modality', Object.values(mods).join(', ')]);
+    }
+    if (content.labels && typeof content.labels === 'object') {
+      kvItems.push(['Labels', Object.keys(content.labels).length]);
+    }
+    if (kvItems.length > 0) {
+      html += '<div class="json-summary">' + kvItems.map(([k, v]) =>
+        `<div class="json-kv"><span class="k">${esc(k)}:</span><span class="v">${esc(String(v))}</span></div>`
+      ).join('') + '</div>';
+    }
+    if (content.labels && typeof content.labels === 'object') {
+      html += '<div style="margin-bottom:10px;font-size:0.78rem;color:#94a3b8"><strong>Labels:</strong> ';
+      html += Object.entries(content.labels).map(([k, v]) =>
+        `<span style="background:#1e293b;border:1px solid #334155;border-radius:4px;padding:2px 7px;margin:2px;display:inline-block">${esc(k)}</span>`
+      ).join('');
+      html += '</div>';
+    }
+  }
+  const jsonStr = typeof content === 'object' ? JSON.stringify(content, null, 2) : String(content);
+  html += `<div class="json-pre">${esc(jsonStr)}</div>`;
+  viewer.innerHTML = html;
 }
 
 // Create job modal

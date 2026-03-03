@@ -322,6 +322,44 @@ def get_dataset(dataset_id: str, _: str = Depends(verify_api_key)):
         conn.close()
 
 
+@router.get("/{dataset_id}/file")
+def get_dataset_file(
+    dataset_id: str,
+    name: str,
+    _: str = Depends(verify_api_key),
+):
+    """Extract and return a JSON file by basename from the dataset ZIP."""
+    ALLOWED = {"dataset.json", "dataset_fingerprint.json", "nnUNetPlans.json"}
+    if name not in ALLOWED:
+        raise HTTPException(status_code=400, detail=f"Allowed files: {sorted(ALLOWED)}")
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT * FROM datasets WHERE id = ?", (dataset_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Dataset not found")
+        zip_path = os.path.join(settings.DATA_DIR, row["zip_path"])
+        if not os.path.exists(zip_path):
+            raise HTTPException(status_code=404, detail="Dataset ZIP not found on disk")
+        try:
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                match = next(
+                    (n for n in zf.namelist() if os.path.basename(n) == name),
+                    None,
+                )
+                if not match:
+                    raise HTTPException(status_code=404, detail=f"{name} not found in ZIP")
+                content = zf.read(match).decode("utf-8", errors="replace")
+        except zipfile.BadZipFile:
+            raise HTTPException(status_code=500, detail="Dataset ZIP is corrupted")
+        try:
+            import json
+            return {"name": name, "path": match, "content": json.loads(content)}
+        except Exception:
+            return {"name": name, "path": match, "content": content}
+    finally:
+        conn.close()
+
+
 @router.get("/{dataset_id}/download")
 def download_dataset(dataset_id: str, _: str = Depends(verify_api_key)):
     conn = get_db()
