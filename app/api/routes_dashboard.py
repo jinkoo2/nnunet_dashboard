@@ -102,8 +102,8 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .file-viewer .jsoneditor .jsoneditor-value.jsoneditor-object,
   .file-viewer .jsoneditor .jsoneditor-value.jsoneditor-array { color: #94a3b8 !important; }
   .file-viewer .jsoneditor .jsoneditor-separator { color: #475569 !important; }
-  .file-viewer .jsoneditor .jsoneditor-button { color: #475569 !important; background: transparent !important; border: none !important; }
-  .file-viewer .jsoneditor .jsoneditor-button:hover { color: #94a3b8 !important; }
+  .file-viewer .jsoneditor .jsoneditor-button { filter: invert(1) opacity(0.6) !important; border: none !important; }
+  .file-viewer .jsoneditor .jsoneditor-button:hover { filter: invert(1) opacity(1) !important; }
   .file-viewer tr.jsoneditor-highlight td, .file-viewer tr.jsoneditor-selected td { background: #1e293b !important; }
   .file-viewer .jsoneditor-readonly { color: #e2e8f0 !important; }
   .file-viewer .jsoneditor-empty { color: #475569 !important; }
