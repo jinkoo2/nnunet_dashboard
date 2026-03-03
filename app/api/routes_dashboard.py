@@ -1,0 +1,640 @@
+from fastapi import APIRouter, Depends
+from fastapi.responses import HTMLResponse, RedirectResponse
+from app.core.auth import verify_dashboard
+
+router = APIRouter()
+
+DASHBOARD_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>nnUNet Dashboard</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f172a; color: #e2e8f0; min-height: 100vh; }
+  header { background: #1e293b; border-bottom: 1px solid #334155; padding: 14px 24px; display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 1.2rem; font-weight: 700; color: #f1f5f9; }
+  header .subtitle { font-size: 0.8rem; color: #64748b; }
+  .tabs { display: flex; gap: 2px; background: #1e293b; border-bottom: 1px solid #334155; padding: 0 24px; }
+  .tab { padding: 12px 20px; cursor: pointer; font-size: 0.875rem; font-weight: 500; color: #94a3b8; border-bottom: 2px solid transparent; transition: all 0.15s; user-select: none; }
+  .tab:hover { color: #e2e8f0; }
+  .tab.active { color: #60a5fa; border-bottom-color: #60a5fa; }
+  .tab-count { background: #334155; color: #94a3b8; border-radius: 10px; padding: 1px 7px; font-size: 0.75rem; margin-left: 6px; }
+  .tab.active .tab-count { background: #1d4ed8; color: #bfdbfe; }
+  .panel { display: none; padding: 24px; }
+  .panel.active { display: block; }
+  .card { background: #1e293b; border: 1px solid #334155; border-radius: 8px; overflow: hidden; }
+  .card-header { padding: 14px 18px; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center; }
+  .card-title { font-size: 0.95rem; font-weight: 600; color: #f1f5f9; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  th { background: #0f172a; color: #64748b; font-weight: 600; padding: 10px 14px; text-align: left; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+  td { padding: 10px 14px; border-top: 1px solid #1e293b; color: #cbd5e1; vertical-align: top; }
+  tr:hover td { background: #1e2d3d; }
+  .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; }
+  .badge-green { background: #064e3b; color: #34d399; }
+  .badge-blue { background: #1e3a5f; color: #60a5fa; }
+  .badge-yellow { background: #451a03; color: #fbbf24; }
+  .badge-red { background: #450a0a; color: #f87171; }
+  .badge-gray { background: #1e293b; color: #64748b; border: 1px solid #334155; }
+  .badge-purple { background: #2e1065; color: #c084fc; }
+  .btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 6px; font-size: 0.8rem; font-weight: 500; cursor: pointer; border: none; transition: all 0.15s; }
+  .btn-primary { background: #2563eb; color: white; }
+  .btn-primary:hover { background: #1d4ed8; }
+  .btn-success { background: #059669; color: white; }
+  .btn-success:hover { background: #047857; }
+  .btn-danger { background: #dc2626; color: white; }
+  .btn-danger:hover { background: #b91c1c; }
+  .btn-secondary { background: #334155; color: #e2e8f0; }
+  .btn-secondary:hover { background: #475569; }
+  .btn-sm { padding: 4px 10px; font-size: 0.75rem; }
+  .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 1000; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 24px; width: 480px; max-width: 95vw; }
+  .modal h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 18px; color: #f1f5f9; }
+  .form-group { margin-bottom: 16px; }
+  label { display: block; font-size: 0.8rem; font-weight: 500; color: #94a3b8; margin-bottom: 6px; }
+  select, input, textarea { width: 100%; padding: 8px 12px; background: #0f172a; border: 1px solid #334155; border-radius: 6px; color: #e2e8f0; font-size: 0.875rem; outline: none; }
+  select:focus, input:focus, textarea:focus { border-color: #3b82f6; }
+  .modal-footer { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+  .progress-bar-wrap { background: #0f172a; border-radius: 4px; height: 8px; overflow: hidden; }
+  .progress-bar { height: 100%; background: #2563eb; border-radius: 4px; transition: width 0.3s; }
+  .expand-row td { padding: 0; }
+  .expand-content { padding: 16px; background: #0f172a; border-top: 1px solid #334155; }
+  .expand-content h4 { color: #94a3b8; font-size: 0.8rem; font-weight: 600; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .log-box { background: #020617; border: 1px solid #1e293b; border-radius: 6px; padding: 12px; font-family: 'Courier New', monospace; font-size: 0.75rem; color: #94a3b8; max-height: 300px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; }
+  .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+  .dot-green { background: #34d399; }
+  .dot-gray { background: #475569; }
+  .dot-yellow { background: #fbbf24; }
+  .empty-state { text-align: center; padding: 40px 20px; color: #475569; font-size: 0.875rem; }
+  .refresh-info { font-size: 0.75rem; color: #475569; }
+  .top-bar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  .sub-table { font-size: 0.78rem; }
+  .sub-table th { font-size: 0.72rem; padding: 6px 10px; }
+  .sub-table td { padding: 6px 10px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>nnUNet Dashboard</h1>
+    <div class="subtitle">Training management & model approval</div>
+  </div>
+  <div style="margin-left:auto; display:flex; align-items:center; gap:14px;">
+    <span class="refresh-info" id="lastRefresh">Polling every 10s</span>
+  </div>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('datasets')">Datasets <span class="tab-count" id="cnt-datasets">0</span></div>
+  <div class="tab" onclick="switchTab('jobs')">Training Jobs <span class="tab-count" id="cnt-jobs">0</span></div>
+  <div class="tab" onclick="switchTab('models')">Models <span class="tab-count" id="cnt-models">0</span></div>
+  <div class="tab" onclick="switchTab('workers')">Workers <span class="tab-count" id="cnt-workers">0</span></div>
+</div>
+
+<!-- DATASETS TAB -->
+<div class="panel active" id="panel-datasets">
+  <div class="top-bar">
+    <span class="card-title">Datasets</span>
+  </div>
+  <div class="card">
+    <table id="tbl-datasets">
+      <thead><tr>
+        <th>Name</th><th>Submitted By</th><th>Submitted At</th><th>Plan</th><th>Jobs</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="body-datasets"><tr><td colspan="6" class="empty-state">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- JOBS TAB -->
+<div class="panel" id="panel-jobs">
+  <div class="top-bar">
+    <span class="card-title">Training Jobs</span>
+  </div>
+  <div class="card">
+    <table id="tbl-jobs">
+      <thead><tr>
+        <th>Dataset</th><th>Worker</th><th>Config</th><th>Status</th><th>Created</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="body-jobs"><tr><td colspan="6" class="empty-state">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- MODELS TAB -->
+<div class="panel" id="panel-models">
+  <div class="top-bar">
+    <span class="card-title">Models</span>
+  </div>
+  <div class="card">
+    <table id="tbl-models">
+      <thead><tr>
+        <th>Dataset</th><th>Config</th><th>Status</th><th>Created</th><th>Description</th><th>Actions</th>
+      </tr></thead>
+      <tbody id="body-models"><tr><td colspan="6" class="empty-state">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- WORKERS TAB -->
+<div class="panel" id="panel-workers">
+  <div class="top-bar">
+    <span class="card-title">Workers</span>
+  </div>
+  <div class="card">
+    <table id="tbl-workers">
+      <thead><tr>
+        <th>Name</th><th>Hostname</th><th>GPU</th><th>CPU Cores</th><th>Status</th><th>Last Heartbeat</th>
+      </tr></thead>
+      <tbody id="body-workers"><tr><td colspan="6" class="empty-state">Loading...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- CREATE JOB MODAL -->
+<div class="modal-overlay" id="modal-create-job">
+  <div class="modal">
+    <h2>Create Training Job</h2>
+    <div class="form-group">
+      <label>Dataset</label>
+      <input type="text" id="cj-dataset-name" disabled style="color:#64748b;">
+      <input type="hidden" id="cj-dataset-id">
+    </div>
+    <div class="form-group">
+      <label>Worker</label>
+      <select id="cj-worker"></select>
+    </div>
+    <div class="form-group">
+      <label>Configuration</label>
+      <select id="cj-config">
+        <option value="3d_fullres">3d_fullres</option>
+        <option value="3d_lowres">3d_lowres</option>
+        <option value="2d">2d</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-create-job')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitCreateJob()">Create Job</button>
+    </div>
+  </div>
+</div>
+
+<!-- EDIT DESCRIPTION MODAL -->
+<div class="modal-overlay" id="modal-edit-desc">
+  <div class="modal">
+    <h2>Edit Model Description</h2>
+    <div class="form-group">
+      <label>Description</label>
+      <textarea id="edit-desc-text" rows="4"></textarea>
+      <input type="hidden" id="edit-desc-model-id">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeModal('modal-edit-desc')">Cancel</button>
+      <button class="btn btn-primary" onclick="submitEditDesc()">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_KEY = '';  // API key not used for dashboard — dashboard uses Basic Auth; API calls go through same session
+
+// State
+let state = { datasets: [], jobs: [], models: [], workers: [] };
+let expandedJobs = new Set();
+let jobDetails = {};
+
+// Tab switching
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const tabs = ['datasets','jobs','models','workers'];
+  document.querySelectorAll('.tab')[tabs.indexOf(name)].classList.add('active');
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+// Fetch helpers
+async function apiFetch(path, opts = {}) {
+  const res = await fetch('/api' + path, {
+    headers: { 'X-Api-Key': document.cookie.match(/api_key=([^;]+)/)?.[1] || '', ...opts.headers },
+    ...opts
+  });
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function apiPost(path, body, opts = {}) {
+  return apiFetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), ...opts });
+}
+
+async function apiPut(path, body) {
+  return apiFetch(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+}
+
+// Formatting helpers
+function fmtDate(s) {
+  if (!s) return '—';
+  try { return new Date(s).toLocaleString(); } catch { return s; }
+}
+
+function relTime(s) {
+  if (!s) return '—';
+  const diff = Math.floor((Date.now() - new Date(s).getTime()) / 1000);
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff/60) + 'm ago';
+  return Math.floor(diff/3600) + 'h ago';
+}
+
+function statusBadge(st) {
+  const map = {
+    online: 'badge-green', offline: 'badge-gray', busy: 'badge-yellow',
+    pending: 'badge-gray', assigned: 'badge-blue', preprocessing: 'badge-blue',
+    training: 'badge-purple', validating: 'badge-yellow', uploading: 'badge-yellow',
+    done: 'badge-green', failed: 'badge-red', cancelled: 'badge-gray',
+    pending_approval: 'badge-yellow', approved: 'badge-green', rejected: 'badge-red'
+  };
+  return `<span class="badge ${map[st] || 'badge-gray'}">${st || '?'}</span>`;
+}
+
+// Data loading
+async function loadAll() {
+  try {
+    const [datasets, jobs, models, workers] = await Promise.all([
+      apiFetch('/datasets/'),
+      apiFetch('/jobs/'),
+      apiFetch('/models/'),
+      apiFetch('/workers/')
+    ]);
+    state = { datasets, jobs, models, workers };
+    renderDatasets();
+    renderJobs();
+    renderModels();
+    renderWorkers();
+    document.getElementById('lastRefresh').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    console.error('Failed to load data:', e);
+  }
+}
+
+// Count helpers
+function countJobsForDataset(datasetId) {
+  return state.jobs.filter(j => j.dataset_id === datasetId).length;
+}
+
+function getDatasetName(datasetId) {
+  const d = state.datasets.find(d => d.id === datasetId);
+  return d ? d.name : datasetId.substring(0,8) + '…';
+}
+
+function getWorkerName(workerId) {
+  const w = state.workers.find(w => w.id === workerId);
+  return w ? w.name : (workerId ? workerId.substring(0,8) + '…' : '—');
+}
+
+function getJobConfig(jobId) {
+  const j = state.jobs.find(j => j.id === jobId);
+  return j ? j.configuration : '—';
+}
+
+// Render datasets
+function renderDatasets() {
+  document.getElementById('cnt-datasets').textContent = state.datasets.length;
+  const tbody = document.getElementById('body-datasets');
+  if (!state.datasets.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No datasets yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = state.datasets.map(d => `
+    <tr>
+      <td><strong>${esc(d.name)}</strong><br><small style="color:#64748b">${d.id.substring(0,8)}</small></td>
+      <td>${esc(d.submitted_by || '—')}</td>
+      <td>${fmtDate(d.submitted_at)}</td>
+      <td>${d.has_plan ? '<span class="badge badge-green">has plan</span>' : '<span class="badge badge-gray">no plan</span>'}</td>
+      <td>${countJobsForDataset(d.id)}</td>
+      <td><button class="btn btn-primary btn-sm" onclick="openCreateJob('${d.id}','${esc(d.name)}')">+ Create Job</button></td>
+    </tr>
+  `).join('');
+}
+
+// Render jobs
+function renderJobs() {
+  document.getElementById('cnt-jobs').textContent = state.jobs.length;
+  const tbody = document.getElementById('body-jobs');
+  if (!state.jobs.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No training jobs yet</td></tr>';
+    return;
+  }
+  let rows = '';
+  state.jobs.forEach(j => {
+    const expanded = expandedJobs.has(j.id);
+    rows += `
+      <tr style="cursor:pointer" onclick="toggleJobExpand('${j.id}')">
+        <td><strong>${esc(getDatasetName(j.dataset_id))}</strong></td>
+        <td>${esc(getWorkerName(j.worker_id))}</td>
+        <td><code style="font-size:0.78rem">${esc(j.configuration || '—')}</code></td>
+        <td>${statusBadge(j.status)}</td>
+        <td>${fmtDate(j.created_at)}</td>
+        <td>
+          ${j.status === 'pending' || j.status === 'assigned' ? `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();cancelJob('${j.id}')">Cancel</button>` : ''}
+          <span style="color:#475569;font-size:0.75rem;margin-left:6px">${expanded ? '▲' : '▼'}</span>
+        </td>
+      </tr>`;
+    if (expanded) {
+      rows += `<tr class="expand-row"><td colspan="6"><div class="expand-content" id="expand-${j.id}">
+        <div style="color:#64748b;font-size:0.8rem">Loading details…</div>
+      </div></td></tr>`;
+    }
+  });
+  tbody.innerHTML = rows;
+  // Load details for expanded jobs
+  expandedJobs.forEach(jid => loadJobDetail(jid));
+}
+
+async function toggleJobExpand(jid) {
+  if (expandedJobs.has(jid)) {
+    expandedJobs.delete(jid);
+  } else {
+    expandedJobs.add(jid);
+  }
+  renderJobs();
+}
+
+async function loadJobDetail(jid) {
+  try {
+    const detail = await apiFetch('/jobs/' + jid);
+    jobDetails[jid] = detail;
+    renderJobDetail(jid, detail);
+  } catch (e) {
+    const el = document.getElementById('expand-' + jid);
+    if (el) el.innerHTML = '<div style="color:#f87171">Failed to load details</div>';
+  }
+}
+
+function renderJobDetail(jid, detail) {
+  const el = document.getElementById('expand-' + jid);
+  if (!el) return;
+
+  let html = '';
+
+  // Error message
+  if (detail.error_message) {
+    html += `<div style="background:#450a0a;border:1px solid #7f1d1d;border-radius:6px;padding:10px 14px;margin-bottom:14px;color:#fca5a5;font-size:0.82rem">
+      <strong>Error:</strong> ${esc(detail.error_message)}
+    </div>`;
+  }
+
+  // Preprocessing progress
+  if (detail.preprocessing_progress) {
+    const pp = detail.preprocessing_progress;
+    const pct = pp.total_images ? Math.round((pp.done_images / pp.total_images) * 100) : 0;
+    html += `<h4>Preprocessing Progress</h4>
+    <div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;font-size:0.8rem;margin-bottom:4px">
+        <span>${pp.done_images || 0} / ${pp.total_images || '?'} images</span>
+        <span>${pct}%${pp.mean_time_per_image_s ? ' · ' + pp.mean_time_per_image_s.toFixed(2) + 's/img' : ''}</span>
+      </div>
+      <div class="progress-bar-wrap"><div class="progress-bar" style="width:${pct}%"></div></div>
+    </div>`;
+  }
+
+  // Training progress per fold
+  if (detail.training_progress && detail.training_progress.length > 0) {
+    // Group by fold
+    const folds = {};
+    detail.training_progress.forEach(tp => {
+      if (!folds[tp.fold]) folds[tp.fold] = [];
+      folds[tp.fold].push(tp);
+    });
+    Object.keys(folds).sort().forEach(fold => {
+      const rows = folds[fold];
+      const last = rows[rows.length - 1];
+      html += `<h4 style="margin-top:14px">Fold ${fold} Training (${rows.length} epochs)</h4>
+      <table class="sub-table" style="margin-bottom:10px">
+        <thead><tr><th>Epoch</th><th>LR</th><th>Train Loss</th><th>Val Loss</th><th>Pseudo Dice</th><th>Time/ep</th></tr></thead>
+        <tbody>`;
+      // Show last 10 epochs
+      rows.slice(-10).forEach(r => {
+        let dice = '—';
+        try { dice = JSON.parse(r.pseudo_dice || 'null'); if (Array.isArray(dice)) dice = dice.map(v => typeof v === 'number' ? v.toFixed(3) : v).join(', '); } catch {}
+        html += `<tr>
+          <td>${r.epoch}</td>
+          <td>${r.learning_rate != null ? r.learning_rate.toExponential(2) : '—'}</td>
+          <td>${r.train_loss != null ? r.train_loss.toFixed(4) : '—'}</td>
+          <td>${r.val_loss != null ? r.val_loss.toFixed(4) : '—'}</td>
+          <td style="font-size:0.72rem;max-width:200px;overflow:hidden;text-overflow:ellipsis">${esc(String(dice))}</td>
+          <td>${r.epoch_time_s != null ? r.epoch_time_s.toFixed(1) + 's' : '—'}</td>
+        </tr>`;
+      });
+      html += `</tbody></table>`;
+
+      // Log viewer button
+      html += `<button class="btn btn-secondary btn-sm" onclick="toggleLog('${jid}',${fold})">View Log (fold ${fold})</button>
+      <div id="log-${jid}-${fold}" style="display:none;margin-top:8px"></div>`;
+    });
+  }
+
+  // Validation results
+  if (detail.validation_results && detail.validation_results.length > 0) {
+    html += `<h4 style="margin-top:14px">Validation Results</h4>`;
+    detail.validation_results.forEach(vr => {
+      let summary = '';
+      try {
+        const obj = JSON.parse(vr.summary_json);
+        summary = JSON.stringify(obj, null, 2).substring(0, 500);
+      } catch { summary = vr.summary_json ? vr.summary_json.substring(0, 300) : ''; }
+      html += `<div style="margin-bottom:8px"><strong style="font-size:0.8rem;color:#94a3b8">Fold ${vr.fold}</strong>
+        <div class="log-box" style="max-height:150px">${esc(summary)}</div></div>`;
+    });
+  }
+
+  if (!html) html = '<div style="color:#64748b;font-size:0.82rem">No detailed progress reported yet.</div>';
+
+  el.innerHTML = html;
+}
+
+async function toggleLog(jid, fold) {
+  const el = document.getElementById(`log-${jid}-${fold}`);
+  if (!el) return;
+  if (el.style.display === 'none') {
+    el.style.display = 'block';
+    el.innerHTML = '<div class="log-box">Loading log…</div>';
+    try {
+      const res = await fetch(`/api/jobs/${jid}/log/${fold}`, { headers: {} });
+      if (res.ok) {
+        const text = await res.text();
+        el.innerHTML = `<div class="log-box">${esc(text.slice(-4000))}</div>`;
+      } else {
+        el.innerHTML = '<div class="log-box" style="color:#f87171">Log not available</div>';
+      }
+    } catch (e) {
+      el.innerHTML = '<div class="log-box" style="color:#f87171">Failed to load log</div>';
+    }
+  } else {
+    el.style.display = 'none';
+  }
+}
+
+async function cancelJob(jid) {
+  if (!confirm('Cancel this job?')) return;
+  try {
+    await apiFetch('/jobs/' + jid, { method: 'DELETE' });
+    await loadAll();
+  } catch (e) {
+    alert('Failed to cancel job: ' + e.message);
+  }
+}
+
+// Render models
+function renderModels() {
+  document.getElementById('cnt-models').textContent = state.models.length;
+  const tbody = document.getElementById('body-models');
+  if (!state.models.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No models yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = state.models.map(m => {
+    const job = state.jobs.find(j => j.id === m.job_id);
+    const config = job ? job.configuration : '—';
+    const datasetName = getDatasetName(m.dataset_id);
+    const actions = [];
+    if (m.status === 'pending_approval') {
+      actions.push(`<button class="btn btn-success btn-sm" onclick="approveModel('${m.id}')">Approve</button>`);
+      actions.push(`<button class="btn btn-danger btn-sm" onclick="rejectModel('${m.id}')">Reject</button>`);
+    }
+    if (m.status === 'approved') {
+      actions.push(`<a class="btn btn-secondary btn-sm" href="/api/models/${m.id}/download">Download</a>`);
+    }
+    actions.push(`<button class="btn btn-secondary btn-sm" onclick="openEditDesc('${m.id}','${esc(m.description||'')}')">Edit</button>`);
+    return `
+      <tr>
+        <td><strong>${esc(datasetName)}</strong></td>
+        <td><code style="font-size:0.78rem">${esc(config)}</code></td>
+        <td>${statusBadge(m.status)}</td>
+        <td>${fmtDate(m.created_at)}</td>
+        <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(m.description || '—')}</td>
+        <td style="white-space:nowrap">${actions.join(' ')}</td>
+      </tr>`;
+  }).join('');
+}
+
+async function approveModel(mid) {
+  try {
+    await apiPost('/models/' + mid + '/approve', { approved_by: 'admin' });
+    await loadAll();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+
+async function rejectModel(mid) {
+  if (!confirm('Reject this model?')) return;
+  try {
+    await apiPost('/models/' + mid + '/reject', {});
+    await loadAll();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+
+function openEditDesc(mid, desc) {
+  document.getElementById('edit-desc-model-id').value = mid;
+  document.getElementById('edit-desc-text').value = desc;
+  openModal('modal-edit-desc');
+}
+
+async function submitEditDesc() {
+  const mid = document.getElementById('edit-desc-model-id').value;
+  const desc = document.getElementById('edit-desc-text').value;
+  try {
+    await apiPut('/models/' + mid, { description: desc });
+    closeModal('modal-edit-desc');
+    await loadAll();
+  } catch (e) { alert('Failed: ' + e.message); }
+}
+
+// Render workers
+function renderWorkers() {
+  document.getElementById('cnt-workers').textContent = state.workers.length;
+  const tbody = document.getElementById('body-workers');
+  if (!state.workers.length) {
+    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No workers registered yet</td></tr>';
+    return;
+  }
+  tbody.innerHTML = state.workers.map(w => {
+    const dot = w.status === 'online' ? 'dot-green' : w.status === 'busy' ? 'dot-yellow' : 'dot-gray';
+    return `
+      <tr>
+        <td><strong>${esc(w.name)}</strong></td>
+        <td>${esc(w.hostname || '—')}</td>
+        <td>${esc(w.gpu_name || '—')}${w.gpu_memory_gb ? ` (${w.gpu_memory_gb} GB)` : ''}</td>
+        <td>${w.cpu_cores || '—'}</td>
+        <td><span class="status-dot ${dot}"></span>${statusBadge(w.status)}</td>
+        <td>${relTime(w.last_heartbeat)}</td>
+      </tr>`;
+  }).join('');
+}
+
+// Create job modal
+function openCreateJob(datasetId, datasetName) {
+  document.getElementById('cj-dataset-id').value = datasetId;
+  document.getElementById('cj-dataset-name').value = datasetName;
+  // Populate workers
+  const sel = document.getElementById('cj-worker');
+  sel.innerHTML = '';
+  const online = state.workers.filter(w => w.status !== 'offline');
+  const all = online.length > 0 ? online : state.workers;
+  if (all.length === 0) {
+    sel.innerHTML = '<option value="">No workers available</option>';
+  } else {
+    all.forEach(w => {
+      const opt = document.createElement('option');
+      opt.value = w.id;
+      opt.textContent = w.name + (w.status === 'offline' ? ' (offline)' : '');
+      sel.appendChild(opt);
+    });
+  }
+  openModal('modal-create-job');
+}
+
+async function submitCreateJob() {
+  const dataset_id = document.getElementById('cj-dataset-id').value;
+  const worker_id = document.getElementById('cj-worker').value;
+  const configuration = document.getElementById('cj-config').value;
+  if (!worker_id) { alert('Select a worker'); return; }
+  try {
+    await apiPost('/jobs/', { dataset_id, worker_id, configuration });
+    closeModal('modal-create-job');
+    await loadAll();
+    switchTab('jobs');
+  } catch (e) { alert('Failed to create job: ' + e.message); }
+}
+
+// Modal helpers
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+// Escape HTML
+function esc(s) {
+  if (s == null) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Close modal on overlay click
+document.querySelectorAll('.modal-overlay').forEach(overlay => {
+  overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
+});
+
+// Initial load + polling
+loadAll();
+setInterval(loadAll, 10000);
+</script>
+</body>
+</html>"""
+
+
+@router.get("/")
+def root():
+    return RedirectResponse(url="/dashboard")
+
+
+@router.get("/dashboard", response_class=HTMLResponse)
+def dashboard(_user: str = Depends(verify_dashboard)):
+    return HTMLResponse(content=DASHBOARD_HTML)

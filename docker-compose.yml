@@ -1,0 +1,10 @@
+services:
+  api:
+    build: .
+    ports:
+      - "9100:9100"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    restart: unless-stopped
