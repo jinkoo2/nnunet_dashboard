@@ -81,14 +81,34 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   .file-tab:hover { color: #e2e8f0; }
   .file-tab.active { color: #60a5fa; background: #1e293b; border-color: #3b82f6; }
   .file-tab.missing { color: #475569; cursor: default; }
-  .file-viewer { flex: 1; overflow-y: auto; background: #fff; border: 1px solid #334155; border-radius: 0 6px 6px 6px; padding: 8px; }
-  .file-viewer .jsoneditor { border: none; }
-  .file-viewer .json-summary { padding: 8px 6px 0; }
-  .json-summary { margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
-  .json-kv { background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 12px; font-size: 0.78rem; }
+  .file-viewer { flex: 1; overflow-y: auto; background: #0f172a; border: 1px solid #334155; border-radius: 0 6px 6px 6px; padding: 8px; }
+  .json-summary { margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 8px; padding: 4px 2px; }
+  .json-kv { background: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 6px 12px; font-size: 0.78rem; }
   .json-kv .k { color: #64748b; margin-right: 4px; }
-  .json-kv .v { color: #1e293b; font-weight: 500; }
-  .json-pre { font-family: 'Courier New', monospace; font-size: 0.75rem; color: #334155; white-space: pre-wrap; word-break: break-all; line-height: 1.6; padding: 8px; }
+  .json-kv .v { color: #e2e8f0; font-weight: 500; }
+  .json-pre { font-family: 'Courier New', monospace; font-size: 0.75rem; color: #94a3b8; white-space: pre-wrap; word-break: break-all; line-height: 1.6; padding: 8px; }
+  /* JSONEditor dark mode overrides */
+  .file-viewer .jsoneditor { border: none !important; }
+  .file-viewer .jsoneditor-menu { background: #0f172a !important; border-bottom: 1px solid #1e293b !important; }
+  .file-viewer .jsoneditor-menu button { color: #64748b !important; background: transparent !important; border: none !important; }
+  .file-viewer .jsoneditor-menu button:hover, .file-viewer .jsoneditor-menu button:focus { background: #1e293b !important; color: #94a3b8 !important; }
+  .file-viewer div.jsoneditor-tree, .file-viewer .jsoneditor-outer { background: #0f172a !important; }
+  .file-viewer table.jsoneditor-tree tr td { background: #0f172a !important; }
+  .file-viewer .jsoneditor .jsoneditor-field { color: #60a5fa !important; }
+  .file-viewer .jsoneditor .jsoneditor-value.jsoneditor-string { color: #86efac !important; }
+  .file-viewer .jsoneditor .jsoneditor-value.jsoneditor-number { color: #fbbf24 !important; }
+  .file-viewer .jsoneditor .jsoneditor-value.jsoneditor-boolean { color: #f87171 !important; }
+  .file-viewer .jsoneditor .jsoneditor-value.jsoneditor-null { color: #94a3b8 !important; }
+  .file-viewer .jsoneditor .jsoneditor-value.jsoneditor-object,
+  .file-viewer .jsoneditor .jsoneditor-value.jsoneditor-array { color: #94a3b8 !important; }
+  .file-viewer .jsoneditor .jsoneditor-separator { color: #475569 !important; }
+  .file-viewer .jsoneditor .jsoneditor-button { color: #475569 !important; background: transparent !important; border: none !important; }
+  .file-viewer .jsoneditor .jsoneditor-button:hover { color: #94a3b8 !important; }
+  .file-viewer tr.jsoneditor-highlight td, .file-viewer tr.jsoneditor-selected td { background: #1e293b !important; }
+  .file-viewer .jsoneditor-readonly { color: #e2e8f0 !important; }
+  .file-viewer .jsoneditor-empty { color: #475569 !important; }
+  .file-viewer .jsoneditor-schema-error { display: none; }
+  .file-viewer .jsoneditor-statusbar { background: #0f172a !important; color: #475569 !important; border-top: 1px solid #1e293b !important; }
 </style>
 </head>
 <body>
@@ -699,7 +719,7 @@ function renderFileContent(name, data) {
   if (typeof content === 'object' && content !== null) {
     loadJsonEditor().then(() => {
       if (!mount || !document.body.contains(mount)) return;
-      const editor = new JSONEditor(mount, { mode: 'view', navigationBar: false });
+      const editor = new JSONEditor(mount, { mode: 'view', navigationBar: false, mainMenuBar: false });
       editor.set(content);
       currentJsonEditor = editor;
     }).catch(() => {
