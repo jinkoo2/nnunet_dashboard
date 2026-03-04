@@ -268,18 +268,46 @@ const API_KEY = '__DASHBOARD_API_KEY__';
 
 // State
 let state = { datasets: [], jobs: [], models: [], workers: [] };
+let currentTab = 'jobs';
 let expandedJobs = new Set();
 let jobDetails = {};
 let expandedWorkers = new Set();
 let workerLogPages = {};
+let openLogs = {};  // { jobId: Set<fold> }
 
 // Tab switching
-function switchTab(name) {
+function switchTab(name, save = true) {
+  currentTab = name;
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   const tabs = ['datasets','jobs','models','workers'];
   document.querySelectorAll('.tab')[tabs.indexOf(name)].classList.add('active');
   document.getElementById('panel-' + name).classList.add('active');
+  if (save) saveUI();
+}
+
+// Persistent UI state
+function saveUI() {
+  try {
+    localStorage.setItem('nnunet_ui', JSON.stringify({
+      tab: currentTab,
+      expandedJobs: [...expandedJobs],
+      expandedWorkers: [...expandedWorkers],
+      openLogs: Object.fromEntries(Object.entries(openLogs).map(([k, v]) => [k, [...v]])),
+    }));
+  } catch(e) {}
+}
+
+function loadUI() {
+  try {
+    const s = JSON.parse(localStorage.getItem('nnunet_ui') || '{}');
+    if (s.tab) switchTab(s.tab, false);
+    if (Array.isArray(s.expandedJobs)) s.expandedJobs.forEach(id => expandedJobs.add(id));
+    if (Array.isArray(s.expandedWorkers)) s.expandedWorkers.forEach(id => expandedWorkers.add(id));
+    if (s.openLogs) Object.entries(s.openLogs).forEach(([jid, folds]) => {
+      openLogs[jid] = new Set(folds);
+    });
+  } catch(e) {}
 }
 
 // Fetch helpers
@@ -435,6 +463,7 @@ async function toggleJobExpand(jid) {
   } else {
     expandedJobs.add(jid);
   }
+  saveUI();
   renderJobs();
 }
 
@@ -554,6 +583,19 @@ function renderJobDetail(jid, detail) {
   if (!html) html = '<div style="color:#64748b;font-size:0.82rem">No detailed progress reported yet.</div>';
 
   el.innerHTML = html;
+
+  // Restore any log panels that were open before the HTML was rebuilt
+  if (openLogs[jid] && openLogs[jid].size > 0) {
+    openLogs[jid].forEach(fold => {
+      const panel = document.getElementById(`log-${jid}-${fold}`);
+      const btn = document.getElementById(`log-btn-${jid}-${fold}`);
+      if (panel) {
+        panel.style.display = 'block';
+        if (btn) btn.textContent = '▲ Hide Log';
+        refreshLog(jid, fold);
+      }
+    });
+  }
 }
 
 async function toggleLog(jid, fold) {
@@ -563,10 +605,15 @@ async function toggleLog(jid, fold) {
   if (panel.style.display !== 'none') {
     panel.style.display = 'none';
     if (btn) btn.textContent = '▼ Show Log';
+    if (openLogs[jid]) openLogs[jid].delete(fold);
+    saveUI();
     return;
   }
   panel.style.display = 'block';
   if (btn) btn.textContent = '▲ Hide Log';
+  if (!openLogs[jid]) openLogs[jid] = new Set();
+  openLogs[jid].add(fold);
+  saveUI();
   const pre = document.getElementById(`log-pre-${jid}-${fold}`);
   if (pre && !pre.textContent) await refreshLog(jid, fold);
 }
@@ -705,6 +752,7 @@ function toggleWorkerExpand(wid) {
   } else {
     expandedWorkers.add(wid);
   }
+  saveUI();
   renderWorkers();
 }
 
@@ -938,7 +986,8 @@ document.querySelectorAll('.modal-overlay').forEach(overlay => {
   overlay.addEventListener('click', e => { if (e.target === overlay) overlay.classList.remove('open'); });
 });
 
-// Initial load + polling
+// Restore UI state from previous session, then start polling
+loadUI();
 loadAll();
 setInterval(loadAll, 10000);
 </script>
