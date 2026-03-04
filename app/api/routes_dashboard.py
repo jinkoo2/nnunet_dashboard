@@ -503,7 +503,7 @@ function renderJobDetail(jid, detail) {
       // Show last 10 epochs
       rows.slice(-10).forEach(r => {
         let dice = '—';
-        try { dice = JSON.parse(r.pseudo_dice || 'null'); if (Array.isArray(dice)) dice = dice.map(v => typeof v === 'number' ? v.toFixed(3) : v).join(', '); } catch {}
+        try { dice = JSON.parse(r.pseudo_dice || 'null'); if (Array.isArray(dice)) dice = dice.map(v => { const n = typeof v === 'number' ? v : parseFloat(String(v).match(/[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?/)?.[0]); return isNaN(n) ? String(v) : n.toFixed(3); }).join(', '); } catch {}
         html += `<tr>
           <td>${r.epoch}</td>
           <td>${r.learning_rate != null ? r.learning_rate.toExponential(2) : '—'}</td>
