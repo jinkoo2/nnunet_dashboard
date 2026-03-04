@@ -97,6 +97,15 @@ def init_db():
                 created_at      TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS worker_logs (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                worker_id   TEXT,
+                worker_name TEXT,
+                level       TEXT DEFAULT 'INFO',
+                message     TEXT NOT NULL,
+                created_at  TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS uploads (
                 id              TEXT PRIMARY KEY,
                 name            TEXT NOT NULL,

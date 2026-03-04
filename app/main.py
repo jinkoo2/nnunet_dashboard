@@ -37,12 +37,13 @@ async def log_requests(request: Request, call_next):
 
 
 # API routes
-from app.api import routes_workers, routes_datasets, routes_jobs, routes_models, routes_dashboard
+from app.api import routes_workers, routes_datasets, routes_jobs, routes_models, routes_logs, routes_dashboard
 
 app.include_router(routes_workers.router, prefix="/api/workers", tags=["Workers"])
 app.include_router(routes_datasets.router, prefix="/api/datasets", tags=["Datasets"])
 app.include_router(routes_jobs.router, prefix="/api/jobs", tags=["Jobs"])
 app.include_router(routes_models.router, prefix="/api/models", tags=["Models"])
+app.include_router(routes_logs.router, prefix="/api/logs", tags=["Logs"])
 app.include_router(routes_dashboard.router, tags=["Dashboard"])
 
 
