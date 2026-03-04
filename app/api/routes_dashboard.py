@@ -515,9 +515,17 @@ function renderJobDetail(jid, detail) {
       });
       html += `</tbody></table>`;
 
-      // Log viewer button
-      html += `<button class="btn btn-secondary btn-sm" onclick="toggleLog('${jid}',${fold})">View Log (fold ${fold})</button>
-      <div id="log-${jid}-${fold}" style="display:none;margin-top:8px"></div>`;
+      // Log viewer
+      html += `<div style="margin-top:10px;margin-bottom:4px">
+        <button id="log-btn-${jid}-${fold}" class="btn btn-secondary btn-sm" onclick="toggleLog('${jid}',${fold})">▼ Show Log</button>
+        <div id="log-${jid}-${fold}" style="display:none;margin-top:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span id="log-info-${jid}-${fold}" style="font-size:0.72rem;color:#64748b"></span>
+            <button class="btn btn-secondary btn-sm" onclick="refreshLog('${jid}',${fold})">↻ Refresh</button>
+          </div>
+          <pre class="log-box" id="log-pre-${jid}-${fold}" style="max-height:400px"></pre>
+        </div>
+      </div>`;
     });
   }
 
@@ -541,24 +549,45 @@ function renderJobDetail(jid, detail) {
 }
 
 async function toggleLog(jid, fold) {
-  const el = document.getElementById(`log-${jid}-${fold}`);
-  if (!el) return;
-  if (el.style.display === 'none') {
-    el.style.display = 'block';
-    el.innerHTML = '<div class="log-box">Loading log…</div>';
-    try {
-      const res = await fetch(`/api/jobs/${jid}/log/${fold}`, { headers: {} });
-      if (res.ok) {
-        const text = await res.text();
-        el.innerHTML = `<div class="log-box">${esc(text.slice(-4000))}</div>`;
+  const panel = document.getElementById(`log-${jid}-${fold}`);
+  const btn = document.getElementById(`log-btn-${jid}-${fold}`);
+  if (!panel) return;
+  if (panel.style.display !== 'none') {
+    panel.style.display = 'none';
+    if (btn) btn.textContent = '▼ Show Log';
+    return;
+  }
+  panel.style.display = 'block';
+  if (btn) btn.textContent = '▲ Hide Log';
+  const pre = document.getElementById(`log-pre-${jid}-${fold}`);
+  if (pre && !pre.textContent) await refreshLog(jid, fold);
+}
+
+async function refreshLog(jid, fold) {
+  const pre = document.getElementById(`log-pre-${jid}-${fold}`);
+  const info = document.getElementById(`log-info-${jid}-${fold}`);
+  if (!pre) return;
+  pre.textContent = 'Loading…';
+  try {
+    const res = await fetch(`/api/jobs/${jid}/log/${fold}`, { headers: { 'X-Api-Key': API_KEY } });
+    if (res.ok) {
+      const text = await res.text();
+      const MAX = 12000;
+      if (text.length > MAX) {
+        pre.textContent = `[… showing last ${MAX} of ${text.length} chars …]\n\n` + text.slice(-MAX);
+        if (info) info.textContent = `${text.length.toLocaleString()} chars total`;
       } else {
-        el.innerHTML = '<div class="log-box" style="color:#f87171">Log not available</div>';
+        pre.textContent = text;
+        if (info) info.textContent = `${text.length.toLocaleString()} chars`;
       }
-    } catch (e) {
-      el.innerHTML = '<div class="log-box" style="color:#f87171">Failed to load log</div>';
+      pre.scrollTop = pre.scrollHeight;
+    } else {
+      pre.textContent = 'Log not available';
+      if (info) info.textContent = '';
     }
-  } else {
-    el.style.display = 'none';
+  } catch (e) {
+    pre.textContent = 'Failed to load log';
+    if (info) info.textContent = '';
   }
 }
 
