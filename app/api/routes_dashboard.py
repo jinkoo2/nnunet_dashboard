@@ -473,16 +473,22 @@ function renderJobs() {
   let rows = '';
   state.jobs.forEach(j => {
     const expanded = expandedJobs.has(j.id);
+    const terminalStatuses = ['done','failed','cancelled'];
+    const activeJob = !terminalStatuses.includes(j.status);
+    let statusCell = statusBadge(j.status);
+    if (j.status === 'training' && j.latest_fold != null)
+      statusCell += `<br><small style="color:#94a3b8;font-size:0.72rem">fold ${j.latest_fold}/4 · ep ${j.latest_epoch}</small>`;
     rows += `
       <tr style="cursor:pointer" onclick="toggleJobExpand('${j.id}')">
         <td><strong>${esc(getDatasetName(j.dataset_id))}</strong></td>
         <td>${esc(getWorkerName(j.worker_id))}</td>
         <td><code style="font-size:0.78rem">${esc(j.configuration || '—')}</code></td>
-        <td>${statusBadge(j.status)}</td>
+        <td>${statusCell}</td>
         <td>${fmtDate(j.created_at)}</td>
-        <td>
-          ${j.status === 'pending' || j.status === 'assigned' ? `<button class="btn btn-danger btn-sm" onclick="event.stopPropagation();cancelJob('${j.id}')">Cancel</button>` : ''}
-          <span style="color:#475569;font-size:0.75rem;margin-left:6px">${expanded ? '▲' : '▼'}</span>
+        <td style="white-space:nowrap">
+          ${activeJob ? `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();cancelJob('${j.id}')">Cancel</button>` : ''}
+          <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();deleteJob('${j.id}')">Delete</button>
+          <span style="color:#475569;font-size:0.75rem;margin-left:4px">${expanded ? '▲' : '▼'}</span>
         </td>
       </tr>`;
     if (expanded) {
@@ -503,6 +509,23 @@ async function toggleJobExpand(jid) {
     expandedJobs.add(jid);
   }
   renderJobs();
+}
+
+async function cancelJob(jid) {
+  if (!confirm('Cancel this job?')) return;
+  try {
+    await apiPut('/jobs/' + jid + '/status', { status: 'cancelled' });
+    await loadAll();
+  } catch (e) { alert('Failed to cancel job: ' + e.message); }
+}
+
+async function deleteJob(jid) {
+  if (!confirm('Delete this job and all its progress data? This cannot be undone.')) return;
+  try {
+    await apiFetch('/jobs/' + jid, { method: 'DELETE' });
+    expandedJobs.delete(jid);
+    await loadAll();
+  } catch (e) { alert('Failed to delete job: ' + e.message); }
 }
 
 async function loadJobDetail(jid) {
@@ -620,15 +643,6 @@ async function toggleLog(jid, fold) {
   }
 }
 
-async function cancelJob(jid) {
-  if (!confirm('Cancel this job?')) return;
-  try {
-    await apiFetch('/jobs/' + jid, { method: 'DELETE' });
-    await loadAll();
-  } catch (e) {
-    alert('Failed to cancel job: ' + e.message);
-  }
-}
 
 // Render models
 function renderModels() {

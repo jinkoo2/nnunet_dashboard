@@ -94,7 +94,18 @@ def list_jobs(
             params.append(status)
         query += " ORDER BY created_at DESC"
         rows = conn.execute(query, params).fetchall()
-        return [dict(r) for r in rows]
+        jobs = []
+        for row in rows:
+            j = dict(row)
+            tp = conn.execute(
+                "SELECT fold, epoch FROM training_progress WHERE job_id=? ORDER BY id DESC LIMIT 1",
+                (j["id"],)
+            ).fetchone()
+            if tp:
+                j["latest_fold"] = tp["fold"]
+                j["latest_epoch"] = tp["epoch"]
+            jobs.append(j)
+        return jobs
     finally:
         conn.close()
 
@@ -136,15 +147,18 @@ def get_job(job_id: str, _: str = Depends(verify_api_key)):
 
 
 @router.delete("/{job_id}")
-def cancel_job(job_id: str, _: str = Depends(verify_api_key)):
+def delete_job(job_id: str, _: str = Depends(verify_api_key)):
+    """Hard-delete a job and all its related records."""
     conn = get_db()
     try:
-        row = conn.execute("SELECT id, status FROM training_jobs WHERE id = ?", (job_id,)).fetchone()
+        row = conn.execute("SELECT id FROM training_jobs WHERE id = ?", (job_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Job not found")
-        if row["status"] in ("done", "failed", "cancelled"):
-            raise HTTPException(status_code=400, detail=f"Job already in terminal status: {row['status']}")
-        conn.execute("UPDATE training_jobs SET status='cancelled' WHERE id=?", (job_id,))
+        conn.execute("DELETE FROM training_progress WHERE job_id = ?", (job_id,))
+        conn.execute("DELETE FROM preprocessing_progress WHERE job_id = ?", (job_id,))
+        conn.execute("DELETE FROM validation_results WHERE job_id = ?", (job_id,))
+        conn.execute("DELETE FROM models WHERE job_id = ?", (job_id,))
+        conn.execute("DELETE FROM training_jobs WHERE id = ?", (job_id,))
         conn.commit()
         return {"ok": True}
     finally:
