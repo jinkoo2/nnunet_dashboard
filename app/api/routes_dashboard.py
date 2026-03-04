@@ -274,9 +274,10 @@ function switchTab(name) {
 
 // Fetch helpers
 async function apiFetch(path, opts = {}) {
+  const { headers: extraHeaders, ...restOpts } = opts;
   const res = await fetch('/api' + path, {
-    headers: { 'X-Api-Key': API_KEY, ...opts.headers },
-    ...opts
+    headers: { 'X-Api-Key': API_KEY, ...extraHeaders },
+    ...restOpts
   });
   if (!res.ok) throw new Error(await res.text());
   return res.json();
