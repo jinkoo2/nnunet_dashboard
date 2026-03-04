@@ -183,9 +183,9 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div class="card">
     <table id="tbl-workers">
       <thead><tr>
-        <th>Name</th><th>Hostname</th><th>GPU</th><th>CPU Cores</th><th>Status</th><th>Last Heartbeat</th>
+        <th>Name</th><th>Hostname</th><th>GPU</th><th>CPU Cores</th><th>RAM (GB)</th><th>Status</th><th>Last Heartbeat</th>
       </tr></thead>
-      <tbody id="body-workers"><tr><td colspan="6" class="empty-state">Loading...</td></tr></tbody>
+      <tbody id="body-workers"><tr><td colspan="7" class="empty-state">Loading...</td></tr></tbody>
     </table>
   </div>
 </div>
@@ -615,7 +615,7 @@ function renderWorkers() {
   document.getElementById('cnt-workers').textContent = state.workers.length;
   const tbody = document.getElementById('body-workers');
   if (!state.workers.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No workers registered yet</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No workers registered yet</td></tr>';
     return;
   }
   tbody.innerHTML = state.workers.map(w => {
@@ -626,6 +626,7 @@ function renderWorkers() {
         <td>${esc(w.hostname || '—')}</td>
         <td>${esc(w.gpu_name || '—')}${w.gpu_memory_gb ? ` (${w.gpu_memory_gb} GB)` : ''}</td>
         <td>${w.cpu_cores || '—'}</td>
+        <td>${w.system_memory_gb != null ? w.system_memory_gb + ' GB' : '—'}</td>
         <td><span class="status-dot ${dot}"></span>${statusBadge(w.status)}</td>
         <td>${relTime(w.last_heartbeat)}</td>
       </tr>`;

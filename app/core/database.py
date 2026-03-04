@@ -20,16 +20,17 @@ def init_db():
     try:
         conn.executescript("""
             CREATE TABLE IF NOT EXISTS workers (
-                id              TEXT PRIMARY KEY,
-                name            TEXT UNIQUE NOT NULL,
-                hostname        TEXT,
-                cpu_cores       INTEGER,
-                gpu_memory_gb   REAL,
-                gpu_name        TEXT,
-                description     TEXT,
-                registered_at   TEXT,
-                last_heartbeat  TEXT,
-                status          TEXT DEFAULT 'offline'
+                id                  TEXT PRIMARY KEY,
+                name                TEXT UNIQUE NOT NULL,
+                hostname            TEXT,
+                cpu_cores           INTEGER,
+                gpu_memory_gb       REAL,
+                gpu_name            TEXT,
+                system_memory_gb    REAL,
+                description         TEXT,
+                registered_at       TEXT,
+                last_heartbeat      TEXT,
+                status              TEXT DEFAULT 'offline'
             );
 
             CREATE TABLE IF NOT EXISTS datasets (
@@ -109,6 +110,13 @@ def init_db():
             );
         """)
         conn.commit()
+        # Migrations: add columns to existing tables if absent
+        try:
+            conn.execute("ALTER TABLE workers ADD COLUMN system_memory_gb REAL")
+            conn.commit()
+            logger.info("Migration: added system_memory_gb to workers")
+        except Exception:
+            pass  # column already exists
         logger.info("Database initialized successfully")
     finally:
         conn.close()

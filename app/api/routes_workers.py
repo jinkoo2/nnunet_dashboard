@@ -19,6 +19,7 @@ class WorkerRegisterRequest(BaseModel):
     cpu_cores: Optional[int] = None
     gpu_memory_gb: Optional[float] = None
     gpu_name: Optional[str] = None
+    system_memory_gb: Optional[float] = None
     description: Optional[str] = None
 
 
@@ -52,18 +53,18 @@ def register_worker(req: WorkerRegisterRequest, _: str = Depends(verify_api_key)
             worker_id = existing["id"]
             conn.execute(
                 """UPDATE workers SET hostname=?, cpu_cores=?, gpu_memory_gb=?, gpu_name=?,
-                   description=?, last_heartbeat=?, status='online' WHERE id=?""",
+                   system_memory_gb=?, description=?, last_heartbeat=?, status='online' WHERE id=?""",
                 (req.hostname, req.cpu_cores, req.gpu_memory_gb, req.gpu_name,
-                 req.description, now, worker_id)
+                 req.system_memory_gb, req.description, now, worker_id)
             )
         else:
             worker_id = str(uuid.uuid4())
             conn.execute(
                 """INSERT INTO workers (id, name, hostname, cpu_cores, gpu_memory_gb, gpu_name,
-                   description, registered_at, last_heartbeat, status)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'online')""",
+                   system_memory_gb, description, registered_at, last_heartbeat, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'online')""",
                 (worker_id, req.name, req.hostname, req.cpu_cores, req.gpu_memory_gb,
-                 req.gpu_name, req.description, now, now)
+                 req.gpu_name, req.system_memory_gb, req.description, now, now)
             )
         conn.commit()
         row = conn.execute("SELECT * FROM workers WHERE id = ?", (worker_id,)).fetchone()
