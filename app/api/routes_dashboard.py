@@ -273,7 +273,9 @@ let expandedJobs = new Set();
 let jobDetails = {};
 let expandedWorkers = new Set();
 let workerLogPages = {};
-let openLogs = {};  // { jobId: Set<fold> }
+let openLogs = {};       // { jobId: Set<fold> }
+let openPlots = {};      // { jobId: Set<fold> } — loss plot
+let openDicePlots = {};  // { jobId: Set<fold> } — dice plot
 
 // Tab switching
 function switchTab(name, save = true) {
@@ -293,7 +295,9 @@ function saveUI() {
       tab: currentTab,
       expandedJobs: [...expandedJobs],
       expandedWorkers: [...expandedWorkers],
-      openLogs: Object.fromEntries(Object.entries(openLogs).map(([k, v]) => [k, [...v]])),
+      openLogs:      Object.fromEntries(Object.entries(openLogs).map(([k, v])      => [k, [...v]])),
+      openPlots:     Object.fromEntries(Object.entries(openPlots).map(([k, v])     => [k, [...v]])),
+      openDicePlots: Object.fromEntries(Object.entries(openDicePlots).map(([k, v]) => [k, [...v]])),
     }));
   } catch(e) {}
 }
@@ -304,9 +308,9 @@ function loadUI() {
     if (s.tab) switchTab(s.tab, false);
     if (Array.isArray(s.expandedJobs)) s.expandedJobs.forEach(id => expandedJobs.add(id));
     if (Array.isArray(s.expandedWorkers)) s.expandedWorkers.forEach(id => expandedWorkers.add(id));
-    if (s.openLogs) Object.entries(s.openLogs).forEach(([jid, folds]) => {
-      openLogs[jid] = new Set(folds);
-    });
+    if (s.openLogs)      Object.entries(s.openLogs).forEach(([jid, folds])      => { openLogs[jid]      = new Set(folds); });
+    if (s.openPlots)     Object.entries(s.openPlots).forEach(([jid, folds])     => { openPlots[jid]     = new Set(folds); });
+    if (s.openDicePlots) Object.entries(s.openDicePlots).forEach(([jid, folds]) => { openDicePlots[jid] = new Set(folds); });
   } catch(e) {}
 }
 
@@ -552,16 +556,24 @@ function renderJobDetail(jid, detail) {
       });
       html += `</tbody></table>`;
 
-      // Log viewer
-      html += `<div style="margin-top:10px;margin-bottom:4px">
+      // Log viewer + plots buttons
+      html += `<div style="margin-top:10px;margin-bottom:4px;display:flex;gap:8px;flex-wrap:wrap">
         <button id="log-btn-${jid}-${fold}" class="btn btn-secondary btn-sm" onclick="toggleLog('${jid}',${fold})">▼ Show Log</button>
-        <div id="log-${jid}-${fold}" style="display:none;margin-top:8px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-            <span id="log-info-${jid}-${fold}" style="font-size:0.72rem;color:#64748b"></span>
-            <button class="btn btn-secondary btn-sm" onclick="refreshLog('${jid}',${fold})">↻ Refresh</button>
-          </div>
-          <pre class="log-box" id="log-pre-${jid}-${fold}" style="max-height:400px"></pre>
+        <button id="plot-btn-${jid}-${fold}" class="btn btn-secondary btn-sm" onclick="toggleLossPlot('${jid}',${fold})">Loss Plot</button>
+        <button id="dice-btn-${jid}-${fold}" class="btn btn-secondary btn-sm" onclick="toggleDicePlot('${jid}',${fold})">Mean Dice Plot</button>
+      </div>
+      <div id="log-${jid}-${fold}" style="display:none;margin-top:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+          <span id="log-info-${jid}-${fold}" style="font-size:0.72rem;color:#64748b"></span>
+          <button class="btn btn-secondary btn-sm" onclick="refreshLog('${jid}',${fold})">↻ Refresh</button>
         </div>
+        <pre class="log-box" id="log-pre-${jid}-${fold}" style="max-height:400px"></pre>
+      </div>
+      <div id="plot-${jid}-${fold}" style="display:none;margin-top:8px">
+        <canvas id="plot-canvas-${jid}-${fold}" style="width:100%;display:block;border-radius:6px"></canvas>
+      </div>
+      <div id="dice-${jid}-${fold}" style="display:none;margin-top:8px">
+        <canvas id="dice-canvas-${jid}-${fold}" style="width:100%;display:block;border-radius:6px"></canvas>
       </div>`;
     });
   }
@@ -596,6 +608,36 @@ function renderJobDetail(jid, detail) {
       }
     });
   }
+
+  // Restore any loss plots that were open before the HTML was rebuilt
+  if (openPlots[jid] && openPlots[jid].size > 0) {
+    openPlots[jid].forEach(fold => {
+      const panel = document.getElementById(`plot-${jid}-${fold}`);
+      const btn = document.getElementById(`plot-btn-${jid}-${fold}`);
+      if (panel) {
+        panel.style.display = 'block';
+        if (btn) btn.textContent = '▲ Loss Plot';
+        const canvas = document.getElementById(`plot-canvas-${jid}-${fold}`);
+        if (canvas && jobDetails[jid] && jobDetails[jid].training_progress)
+          drawLossChart(canvas, jobDetails[jid].training_progress.filter(r => r.fold == fold));
+      }
+    });
+  }
+
+  // Restore any dice plots that were open before the HTML was rebuilt
+  if (openDicePlots[jid] && openDicePlots[jid].size > 0) {
+    openDicePlots[jid].forEach(fold => {
+      const panel = document.getElementById(`dice-${jid}-${fold}`);
+      const btn = document.getElementById(`dice-btn-${jid}-${fold}`);
+      if (panel) {
+        panel.style.display = 'block';
+        if (btn) btn.textContent = '▲ Mean Dice Plot';
+        const canvas = document.getElementById(`dice-canvas-${jid}-${fold}`);
+        if (canvas && jobDetails[jid] && jobDetails[jid].training_progress)
+          drawDiceChart(canvas, jobDetails[jid].training_progress.filter(r => r.fold == fold));
+      }
+    });
+  }
 }
 
 async function toggleLog(jid, fold) {
@@ -616,6 +658,222 @@ async function toggleLog(jid, fold) {
   saveUI();
   const pre = document.getElementById(`log-pre-${jid}-${fold}`);
   if (pre && !pre.textContent) await refreshLog(jid, fold);
+}
+
+function toggleLossPlot(jid, fold) {
+  const panel = document.getElementById(`plot-${jid}-${fold}`);
+  const btn = document.getElementById(`plot-btn-${jid}-${fold}`);
+  if (!panel) return;
+  if (panel.style.display !== 'none') {
+    panel.style.display = 'none';
+    if (btn) btn.textContent = 'Loss Plot';
+    if (openPlots[jid]) openPlots[jid].delete(fold);
+    saveUI();
+    return;
+  }
+  panel.style.display = 'block';
+  if (btn) btn.textContent = '▲ Loss Plot';
+  if (!openPlots[jid]) openPlots[jid] = new Set();
+  openPlots[jid].add(fold);
+  saveUI();
+  const canvas = document.getElementById(`plot-canvas-${jid}-${fold}`);
+  if (canvas && jobDetails[jid] && jobDetails[jid].training_progress)
+    drawLossChart(canvas, jobDetails[jid].training_progress.filter(r => r.fold == fold));
+}
+
+function drawLossChart(canvas, rows) {
+  if (!rows || !rows.length) return;
+  const W = canvas.offsetWidth || 600;
+  const H = 230;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const pad = { top: 28, right: 24, bottom: 38, left: 62 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  // Background
+  ctx.fillStyle = '#020617';
+  ctx.fillRect(0, 0, W, H);
+
+  const trainRows = rows.filter(r => r.train_loss != null);
+  const valRows   = rows.filter(r => r.val_loss != null);
+  const allLosses = [...trainRows.map(r => r.train_loss), ...valRows.map(r => r.val_loss)];
+  if (!allLosses.length) {
+    ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('No loss data yet', W / 2, H / 2); return;
+  }
+
+  const minEp = rows[0].epoch, maxEp = rows[rows.length - 1].epoch;
+  let minL = Math.min(...allLosses), maxL = Math.max(...allLosses);
+  const lpad = (maxL - minL) * 0.08 || 0.005;
+  minL -= lpad; maxL += lpad;
+
+  const xS = ep => pad.left + ((ep - minEp) / Math.max(maxEp - minEp, 1)) * plotW;
+  const yS = v  => pad.top  + (1 - (v - minL) / (maxL - minL)) * plotH;
+
+  // Horizontal grid + Y labels
+  const numY = 5;
+  for (let i = 0; i <= numY; i++) {
+    const v = minL + (maxL - minL) * (1 - i / numY);
+    const y = pad.top + (i / numY) * plotH;
+    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + plotW, y); ctx.stroke();
+    ctx.fillStyle = '#64748b'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+    ctx.fillText(v.toFixed(3), pad.left - 6, y + 3);
+  }
+
+  // Vertical grid + X labels
+  const numX = Math.min(8, rows.length);
+  for (let i = 0; i <= numX; i++) {
+    const ep = Math.round(minEp + (maxEp - minEp) * i / numX);
+    const x = xS(ep);
+    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + plotH); ctx.stroke();
+    ctx.fillStyle = '#64748b'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(ep, x, pad.top + plotH + 14);
+  }
+
+  // Axes
+  ctx.strokeStyle = '#475569'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, pad.top + plotH);
+  ctx.lineTo(pad.left + plotW, pad.top + plotH); ctx.stroke();
+
+  // Draw a data line
+  const drawLine = (pts, color) => {
+    if (!pts.length) return;
+    ctx.strokeStyle = color; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+    ctx.beginPath();
+    pts.forEach((p, i) => { i === 0 ? ctx.moveTo(xS(p.ep), yS(p.v)) : ctx.lineTo(xS(p.ep), yS(p.v)); });
+    ctx.stroke();
+  };
+  drawLine(trainRows.map(r => ({ ep: r.epoch, v: r.train_loss })), '#60a5fa');
+  drawLine(valRows.map(r =>   ({ ep: r.epoch, v: r.val_loss   })), '#34d399');
+
+  // Legend (top-left inside plot area)
+  const legend = [['Train Loss', '#60a5fa'], ['Val Loss', '#34d399']];
+  let lx = pad.left + 6;
+  ctx.font = '10px sans-serif'; ctx.lineWidth = 2;
+  legend.forEach(([label, color]) => {
+    ctx.strokeStyle = color;
+    ctx.beginPath(); ctx.moveTo(lx, 14); ctx.lineTo(lx + 20, 14); ctx.stroke();
+    ctx.fillStyle = '#94a3b8'; ctx.textAlign = 'left';
+    ctx.fillText(label, lx + 24, 18);
+    lx += label.length * 6 + 36;
+  });
+
+  // X-axis label
+  ctx.fillStyle = '#475569'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Epoch', pad.left + plotW / 2, H - 4);
+}
+
+function toggleDicePlot(jid, fold) {
+  const panel = document.getElementById(`dice-${jid}-${fold}`);
+  const btn = document.getElementById(`dice-btn-${jid}-${fold}`);
+  if (!panel) return;
+  if (panel.style.display !== 'none') {
+    panel.style.display = 'none';
+    if (btn) btn.textContent = 'Mean Dice Plot';
+    if (openDicePlots[jid]) openDicePlots[jid].delete(fold);
+    saveUI();
+    return;
+  }
+  panel.style.display = 'block';
+  if (btn) btn.textContent = '▲ Mean Dice Plot';
+  if (!openDicePlots[jid]) openDicePlots[jid] = new Set();
+  openDicePlots[jid].add(fold);
+  saveUI();
+  const canvas = document.getElementById(`dice-canvas-${jid}-${fold}`);
+  if (canvas && jobDetails[jid] && jobDetails[jid].training_progress)
+    drawDiceChart(canvas, jobDetails[jid].training_progress.filter(r => r.fold == fold));
+}
+
+function drawDiceChart(canvas, rows) {
+  if (!rows || !rows.length) return;
+  const W = canvas.offsetWidth || 600;
+  const H = 230;
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const pad = { top: 28, right: 24, bottom: 38, left: 62 };
+  const plotW = W - pad.left - pad.right;
+  const plotH = H - pad.top - pad.bottom;
+
+  // Background
+  ctx.fillStyle = '#020617';
+  ctx.fillRect(0, 0, W, H);
+
+  // Compute mean dice per epoch
+  const parseMeanDice = r => {
+    try {
+      const arr = JSON.parse(r.pseudo_dice || 'null');
+      if (!Array.isArray(arr) || !arr.length) return null;
+      const nums = arr.map(v => typeof v === 'number' ? v
+        : parseFloat(String(v).match(/[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?/)?.[0])
+      ).filter(n => !isNaN(n));
+      return nums.length ? nums.reduce((a, b) => a + b, 0) / nums.length : null;
+    } catch { return null; }
+  };
+
+  const pts = rows.map(r => ({ ep: r.epoch, v: parseMeanDice(r) })).filter(p => p.v != null);
+  if (!pts.length) {
+    ctx.fillStyle = '#64748b'; ctx.font = '12px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('No dice data yet', W / 2, H / 2); return;
+  }
+
+  const minEp = pts[0].ep, maxEp = pts[pts.length - 1].ep;
+  let minV = Math.min(...pts.map(p => p.v));
+  let maxV = Math.max(...pts.map(p => p.v));
+  const vpad = (maxV - minV) * 0.08 || 0.005;
+  minV -= vpad; maxV += vpad;
+
+  const xS = ep => pad.left + ((ep - minEp) / Math.max(maxEp - minEp, 1)) * plotW;
+  const yS = v  => pad.top  + (1 - (v - minV) / (maxV - minV)) * plotH;
+
+  // Horizontal grid + Y labels
+  const numY = 5;
+  for (let i = 0; i <= numY; i++) {
+    const v = minV + (maxV - minV) * (1 - i / numY);
+    const y = pad.top + (i / numY) * plotH;
+    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + plotW, y); ctx.stroke();
+    ctx.fillStyle = '#64748b'; ctx.font = '10px monospace'; ctx.textAlign = 'right';
+    ctx.fillText(v.toFixed(3), pad.left - 6, y + 3);
+  }
+
+  // Vertical grid + X labels
+  const numX = Math.min(8, pts.length);
+  for (let i = 0; i <= numX; i++) {
+    const ep = Math.round(minEp + (maxEp - minEp) * i / numX);
+    const x = xS(ep);
+    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + plotH); ctx.stroke();
+    ctx.fillStyle = '#64748b'; ctx.font = '10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(ep, x, pad.top + plotH + 14);
+  }
+
+  // Axes
+  ctx.strokeStyle = '#475569'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad.left, pad.top); ctx.lineTo(pad.left, pad.top + plotH);
+  ctx.lineTo(pad.left + plotW, pad.top + plotH); ctx.stroke();
+
+  // Data line
+  ctx.strokeStyle = '#fb923c'; ctx.lineWidth = 1.8; ctx.lineJoin = 'round';
+  ctx.beginPath();
+  pts.forEach((p, i) => { i === 0 ? ctx.moveTo(xS(p.ep), yS(p.v)) : ctx.lineTo(xS(p.ep), yS(p.v)); });
+  ctx.stroke();
+
+  // Legend
+  ctx.strokeStyle = '#fb923c'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(pad.left + 6, 14); ctx.lineTo(pad.left + 26, 14); ctx.stroke();
+  ctx.fillStyle = '#94a3b8'; ctx.font = '10px sans-serif'; ctx.textAlign = 'left';
+  ctx.fillText('Mean Pseudo Dice', pad.left + 30, 18);
+
+  // X-axis label
+  ctx.fillStyle = '#475569'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  ctx.fillText('Epoch', pad.left + plotW / 2, H - 4);
 }
 
 async function refreshLog(jid, fold) {
