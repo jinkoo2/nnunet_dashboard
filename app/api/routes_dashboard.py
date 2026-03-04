@@ -128,7 +128,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
   <div class="tab" onclick="switchTab('jobs')">Training Jobs <span class="tab-count" id="cnt-jobs">0</span></div>
   <div class="tab" onclick="switchTab('models')">Models <span class="tab-count" id="cnt-models">0</span></div>
   <div class="tab" onclick="switchTab('workers')">Workers <span class="tab-count" id="cnt-workers">0</span></div>
-  <div class="tab" onclick="switchTab('logs')">Logs <span class="tab-count" id="cnt-logs">0</span></div>
 </div>
 
 <!-- DATASETS TAB -->
@@ -188,26 +187,6 @@ DASHBOARD_HTML = """<!DOCTYPE html>
       </tr></thead>
       <tbody id="body-workers"><tr><td colspan="7" class="empty-state">Loading...</td></tr></tbody>
     </table>
-  </div>
-</div>
-
-<!-- LOGS TAB -->
-<div class="panel" id="panel-logs">
-  <div class="top-bar">
-    <span class="card-title">Worker Logs</span>
-    <div style="display:flex;gap:8px;align-items:center">
-      <span id="logs-info" style="color:#64748b;font-size:0.82rem"></span>
-      <button class="btn btn-danger btn-sm" onclick="clearLogs()">Clear All</button>
-    </div>
-  </div>
-  <div class="card">
-    <table id="tbl-logs">
-      <thead><tr>
-        <th style="white-space:nowrap">Time</th><th>Worker</th><th>Level</th><th>Message</th>
-      </tr></thead>
-      <tbody id="body-logs"><tr><td colspan="4" class="empty-state">Select this tab to load logs</td></tr></tbody>
-    </table>
-    <div id="logs-pagination" style="display:flex;gap:6px;justify-content:center;padding:12px;flex-wrap:wrap"></div>
   </div>
 </div>
 
@@ -283,17 +262,16 @@ const API_KEY = '__DASHBOARD_API_KEY__';
 let state = { datasets: [], jobs: [], models: [], workers: [] };
 let expandedJobs = new Set();
 let jobDetails = {};
-let logsPage = 1;
-let logsTotalPages = 1;
+let expandedWorkers = new Set();
+let workerLogPages = {};
 
 // Tab switching
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
-  const tabs = ['datasets','jobs','models','workers','logs'];
+  const tabs = ['datasets','jobs','models','workers'];
   document.querySelectorAll('.tab')[tabs.indexOf(name)].classList.add('active');
   document.getElementById('panel-' + name).classList.add('active');
-  if (name === 'logs') loadLogs(1);
 }
 
 // Fetch helpers
@@ -355,68 +333,9 @@ async function loadAll() {
     renderModels();
     renderWorkers();
     document.getElementById('lastRefresh').textContent = 'Last updated: ' + new Date().toLocaleTimeString();
-    // Refresh logs if logs tab is currently visible
-    const activePanel = document.querySelector('.panel.active');
-    if (activePanel && activePanel.id === 'panel-logs') loadLogs(logsPage);
   } catch (e) {
     console.error('Failed to load data:', e);
   }
-}
-
-// Logs
-async function loadLogs(page) {
-  logsPage = page || 1;
-  try {
-    const data = await apiFetch(`/logs/?page=${logsPage}&per_page=50`);
-    logsTotalPages = data.pages;
-    renderLogs(data);
-  } catch (e) {
-    console.error('Failed to load logs:', e);
-  }
-}
-
-function renderLogs(data) {
-  document.getElementById('cnt-logs').textContent = data.total;
-  document.getElementById('logs-info').textContent =
-    `${data.total} entr${data.total === 1 ? 'y' : 'ies'} · page ${data.page} / ${data.pages}`;
-  const tbody = document.getElementById('body-logs');
-  if (!data.items.length) {
-    tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No log entries</td></tr>';
-  } else {
-    const levelBadge = lvl => {
-      const cls = lvl === 'ERROR' || lvl === 'CRITICAL' ? 'badge-red'
-                : lvl === 'WARNING' ? 'badge-yellow' : 'badge-blue';
-      return `<span class="badge ${cls}">${esc(lvl)}</span>`;
-    };
-    tbody.innerHTML = data.items.map(log => `
-      <tr>
-        <td style="white-space:nowrap;font-size:0.78rem;color:#94a3b8">${fmtDate(log.created_at)}</td>
-        <td style="white-space:nowrap">${esc(log.worker_name || '—')}</td>
-        <td>${levelBadge(log.level)}</td>
-        <td style="font-size:0.82rem;word-break:break-word;max-width:600px">${esc(log.message)}</td>
-      </tr>`).join('');
-  }
-  // Pagination controls
-  const pag = document.getElementById('logs-pagination');
-  if (data.pages <= 1) { pag.innerHTML = ''; return; }
-  let html = '';
-  if (data.page > 1)
-    html += `<button class="btn btn-secondary btn-sm" onclick="loadLogs(${data.page - 1})">← Prev</button>`;
-  const start = Math.max(1, data.page - 2);
-  const end = Math.min(data.pages, data.page + 2);
-  for (let p = start; p <= end; p++)
-    html += `<button class="btn ${p === data.page ? 'btn-primary' : 'btn-secondary'} btn-sm" onclick="loadLogs(${p})">${p}</button>`;
-  if (data.page < data.pages)
-    html += `<button class="btn btn-secondary btn-sm" onclick="loadLogs(${data.page + 1})">Next →</button>`;
-  pag.innerHTML = html;
-}
-
-async function clearLogs() {
-  if (!confirm('Clear all log entries?')) return;
-  try {
-    await apiFetch('/logs/', { method: 'DELETE' });
-    await loadLogs(1);
-  } catch (e) { alert('Failed: ' + e.message); }
 }
 
 // Count helpers
@@ -716,19 +635,99 @@ function renderWorkers() {
     tbody.innerHTML = '<tr><td colspan="7" class="empty-state">No workers registered yet</td></tr>';
     return;
   }
-  tbody.innerHTML = state.workers.map(w => {
+  let rows = '';
+  state.workers.forEach(w => {
+    const expanded = expandedWorkers.has(w.id);
     const dot = w.status === 'online' ? 'dot-green' : w.status === 'busy' ? 'dot-yellow' : 'dot-gray';
-    return `
-      <tr>
+    rows += `
+      <tr style="cursor:pointer" onclick="toggleWorkerExpand('${w.id}')">
         <td><strong>${esc(w.name)}</strong></td>
         <td>${esc(w.hostname || '—')}</td>
         <td>${esc(w.gpu_name || '—')}${w.gpu_memory_gb ? ` (${w.gpu_memory_gb} GB)` : ''}</td>
         <td>${w.cpu_cores || '—'}</td>
         <td>${w.system_memory_gb != null ? w.system_memory_gb + ' GB' : '—'}</td>
         <td><span class="status-dot ${dot}"></span>${statusBadge(w.status)}</td>
-        <td>${relTime(w.last_heartbeat)}</td>
+        <td style="white-space:nowrap">${relTime(w.last_heartbeat)}
+          <span style="color:#475569;font-size:0.75rem;margin-left:8px">${expanded ? '▲' : '▼'}</span>
+        </td>
       </tr>`;
-  }).join('');
+    if (expanded) {
+      rows += `<tr class="expand-row"><td colspan="7">
+        <div class="expand-content" id="worker-expand-${w.id}">
+          <div style="color:#64748b;font-size:0.8rem">Loading logs…</div>
+        </div></td></tr>`;
+    }
+  });
+  tbody.innerHTML = rows;
+  expandedWorkers.forEach(wid => loadWorkerLogs(wid, workerLogPages[wid] || 1));
+}
+
+function toggleWorkerExpand(wid) {
+  if (expandedWorkers.has(wid)) {
+    expandedWorkers.delete(wid);
+  } else {
+    expandedWorkers.add(wid);
+  }
+  renderWorkers();
+}
+
+async function loadWorkerLogs(wid, page) {
+  workerLogPages[wid] = page || 1;
+  try {
+    const data = await apiFetch(`/logs/?worker_id=${wid}&page=${workerLogPages[wid]}&per_page=20`);
+    renderWorkerLogs(wid, data);
+  } catch (e) {
+    const el = document.getElementById('worker-expand-' + wid);
+    if (el) el.innerHTML = '<div style="color:#f87171;font-size:0.82rem">Failed to load logs</div>';
+  }
+}
+
+function renderWorkerLogs(wid, data) {
+  const el = document.getElementById('worker-expand-' + wid);
+  if (!el) return;
+  const levelBadge = lvl => {
+    const cls = lvl === 'ERROR' || lvl === 'CRITICAL' ? 'badge-red'
+              : lvl === 'WARNING' ? 'badge-yellow' : 'badge-blue';
+    return `<span class="badge ${cls}">${esc(lvl)}</span>`;
+  };
+  let html = `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+    <span style="font-size:0.82rem;color:#64748b">${data.total} entr${data.total===1?'y':'ies'} · page ${data.page} / ${data.pages}</span>
+    <button class="btn btn-danger btn-sm" onclick="event.stopPropagation();clearWorkerLogs('${wid}')">Clear</button>
+  </div>`;
+  if (!data.items.length) {
+    html += '<div style="color:#64748b;font-size:0.82rem;padding:6px 0">No log entries yet</div>';
+  } else {
+    html += `<table class="sub-table">
+      <thead><tr><th style="white-space:nowrap">Time</th><th>Level</th><th>Message</th></tr></thead>
+      <tbody>`;
+    html += data.items.map(log => `
+      <tr>
+        <td style="white-space:nowrap;font-size:0.78rem;color:#94a3b8">${fmtDate(log.created_at)}</td>
+        <td>${levelBadge(log.level)}</td>
+        <td style="font-size:0.82rem;word-break:break-word">${esc(log.message)}</td>
+      </tr>`).join('');
+    html += '</tbody></table>';
+  }
+  if (data.pages > 1) {
+    html += '<div style="display:flex;gap:6px;justify-content:center;padding:10px 0;flex-wrap:wrap">';
+    if (data.page > 1)
+      html += `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();loadWorkerLogs('${wid}',${data.page-1})">← Prev</button>`;
+    const start = Math.max(1, data.page - 2), end = Math.min(data.pages, data.page + 2);
+    for (let p = start; p <= end; p++)
+      html += `<button class="btn ${p===data.page?'btn-primary':'btn-secondary'} btn-sm" onclick="event.stopPropagation();loadWorkerLogs('${wid}',${p})">${p}</button>`;
+    if (data.page < data.pages)
+      html += `<button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();loadWorkerLogs('${wid}',${data.page+1})">Next →</button>`;
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+async function clearWorkerLogs(wid) {
+  if (!confirm('Clear all logs for this worker?')) return;
+  try {
+    await apiFetch(`/logs/?worker_id=${wid}`, { method: 'DELETE' });
+    await loadWorkerLogs(wid, 1);
+  } catch (e) { alert('Failed: ' + e.message); }
 }
 
 // Dataset file viewer

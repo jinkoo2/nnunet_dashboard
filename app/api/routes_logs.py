@@ -38,15 +38,30 @@ def post_log(entry: LogEntry, _: str = Depends(verify_api_key)):
 
 
 @router.get("/")
-def get_logs(page: int = 1, per_page: int = 50, _: str = Depends(verify_api_key)):
+def get_logs(
+    page: int = 1,
+    per_page: int = 20,
+    worker_id: Optional[str] = None,
+    _: str = Depends(verify_api_key),
+):
     conn = get_db()
     try:
-        total = conn.execute("SELECT COUNT(*) FROM worker_logs").fetchone()[0]
-        offset = (page - 1) * per_page
-        rows = conn.execute(
-            "SELECT * FROM worker_logs ORDER BY id DESC LIMIT ? OFFSET ?",
-            (per_page, offset),
-        ).fetchall()
+        if worker_id:
+            total = conn.execute(
+                "SELECT COUNT(*) FROM worker_logs WHERE worker_id = ?", (worker_id,)
+            ).fetchone()[0]
+            offset = (page - 1) * per_page
+            rows = conn.execute(
+                "SELECT * FROM worker_logs WHERE worker_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                (worker_id, per_page, offset),
+            ).fetchall()
+        else:
+            total = conn.execute("SELECT COUNT(*) FROM worker_logs").fetchone()[0]
+            offset = (page - 1) * per_page
+            rows = conn.execute(
+                "SELECT * FROM worker_logs ORDER BY id DESC LIMIT ? OFFSET ?",
+                (per_page, offset),
+            ).fetchall()
         return {
             "total": total,
             "page": page,
@@ -59,10 +74,13 @@ def get_logs(page: int = 1, per_page: int = 50, _: str = Depends(verify_api_key)
 
 
 @router.delete("/")
-def clear_logs(_: str = Depends(verify_api_key)):
+def clear_logs(worker_id: Optional[str] = None, _: str = Depends(verify_api_key)):
     conn = get_db()
     try:
-        conn.execute("DELETE FROM worker_logs")
+        if worker_id:
+            conn.execute("DELETE FROM worker_logs WHERE worker_id = ?", (worker_id,))
+        else:
+            conn.execute("DELETE FROM worker_logs")
         conn.commit()
         return {"ok": True}
     finally:
