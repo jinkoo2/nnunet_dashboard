@@ -10,6 +10,7 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>nnUNet Dashboard</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='5' fill='%231e293b'/><line x1='6' y1='5' x2='6' y2='24' stroke='%23475569' stroke-width='1'/><line x1='6' y1='24' x2='28' y2='24' stroke='%23475569' stroke-width='1'/><polyline points='6,8 11,12 16,15 21,18 26,20' fill='none' stroke='%2360a5fa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/><polyline points='6,23 11,20 16,17 21,14 26,12' fill='none' stroke='%2334d399' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jsoneditor/10.1.0/jsoneditor.min.css">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -114,6 +115,13 @@ DASHBOARD_HTML = """<!DOCTYPE html>
 <body>
 
 <header>
+  <svg width="36" height="36" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0">
+    <rect width="32" height="32" rx="5" fill="#0f172a"/>
+    <line x1="6" y1="5" x2="6" y2="24" stroke="#475569" stroke-width="1"/>
+    <line x1="6" y1="24" x2="28" y2="24" stroke="#475569" stroke-width="1"/>
+    <polyline points="6,8 11,12 16,15 21,18 26,20" fill="none" stroke="#60a5fa" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <polyline points="6,23 11,20 16,17 21,14 26,12" fill="none" stroke="#34d399" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>
   <div>
     <h1>nnUNet Dashboard</h1>
     <div class="subtitle">Training management & model approval</div>
