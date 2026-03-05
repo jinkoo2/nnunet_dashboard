@@ -1,5 +1,7 @@
 import uuid
 import os
+import json
+import shutil
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, UploadFile, File, Request
@@ -326,6 +328,147 @@ async def upload_model(
             (model_id, job_id, dataset_id, relative_path, now)
         )
         conn.commit()
+        model_row = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone()
+        return dict(model_row)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Chunked model upload (for large model ZIPs that exceed ingress size limits)
+# ---------------------------------------------------------------------------
+
+def _model_upload_dir(upload_id: str) -> str:
+    return os.path.join(settings.DATA_DIR, "model_uploads", upload_id)
+
+def _model_upload_meta_path(upload_id: str) -> str:
+    return os.path.join(_model_upload_dir(upload_id), "meta.json")
+
+def _model_chunk_path(upload_id: str, index: int) -> str:
+    return os.path.join(_model_upload_dir(upload_id), f"{index:06d}.chunk")
+
+def _load_model_upload_meta(upload_id: str) -> dict:
+    path = _model_upload_meta_path(upload_id)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Model upload session not found")
+    with open(path) as f:
+        return json.load(f)
+
+def _save_model_upload_meta(upload_id: str, meta: dict):
+    with open(_model_upload_meta_path(upload_id), "w") as f:
+        json.dump(meta, f)
+
+
+class InitModelUploadRequest(BaseModel):
+    total_chunks: int
+    total_size: Optional[int] = None  # bytes, informational
+
+
+@router.post("/{job_id}/model/upload/init")
+def init_model_upload(job_id: str, req: InitModelUploadRequest, _: str = Depends(verify_api_key)):
+    """Start a chunked model upload session. Returns upload_id."""
+    conn = get_db()
+    try:
+        row = conn.execute("SELECT id FROM training_jobs WHERE id = ?", (job_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Job not found")
+    finally:
+        conn.close()
+
+    if req.total_chunks < 1:
+        raise HTTPException(status_code=400, detail="total_chunks must be >= 1")
+
+    upload_id = str(uuid.uuid4())
+    os.makedirs(_model_upload_dir(upload_id), exist_ok=True)
+    _save_model_upload_meta(upload_id, {
+        "job_id": job_id,
+        "total_chunks": req.total_chunks,
+        "total_size": req.total_size,
+        "received_chunks": [],
+    })
+    return {"upload_id": upload_id, "total_chunks": req.total_chunks}
+
+
+@router.post("/{job_id}/model/upload/{upload_id}/chunk/{chunk_index}")
+async def upload_model_chunk(
+    job_id: str,
+    upload_id: str,
+    chunk_index: int,
+    request: Request,
+    _: str = Depends(verify_api_key),
+):
+    """Upload one chunk (raw bytes body). Idempotent."""
+    meta = _load_model_upload_meta(upload_id)
+    if meta["job_id"] != job_id:
+        raise HTTPException(status_code=400, detail="upload_id does not belong to this job")
+    if chunk_index < 0 or chunk_index >= meta["total_chunks"]:
+        raise HTTPException(status_code=400, detail=f"chunk_index out of range [0, {meta['total_chunks'] - 1}]")
+
+    body = await request.body()
+    if not body:
+        raise HTTPException(status_code=400, detail="Empty chunk body")
+
+    with open(_model_chunk_path(upload_id, chunk_index), "wb") as f:
+        f.write(body)
+
+    if chunk_index not in meta["received_chunks"]:
+        meta["received_chunks"].append(chunk_index)
+        _save_model_upload_meta(upload_id, meta)
+
+    return {
+        "ok": True,
+        "chunk_index": chunk_index,
+        "received": len(meta["received_chunks"]),
+        "total_chunks": meta["total_chunks"],
+    }
+
+
+@router.post("/{job_id}/model/upload/{upload_id}/complete")
+def complete_model_upload(job_id: str, upload_id: str, _: str = Depends(verify_api_key)):
+    """Assemble all chunks and create the model record."""
+    meta = _load_model_upload_meta(upload_id)
+    if meta["job_id"] != job_id:
+        raise HTTPException(status_code=400, detail="upload_id does not belong to this job")
+
+    missing = [i for i in range(meta["total_chunks"]) if i not in meta["received_chunks"]]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Missing {len(missing)} chunk(s): {missing[:10]}{'...' if len(missing) > 10 else ''}"
+        )
+
+    conn = get_db()
+    try:
+        row = conn.execute(
+            "SELECT id, dataset_id FROM training_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Job not found")
+        dataset_id = row["dataset_id"]
+
+        model_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        model_dir = os.path.join(settings.DATA_DIR, "models", model_id)
+        os.makedirs(model_dir, exist_ok=True)
+        zip_path = os.path.join(model_dir, "model.zip")
+
+        logger.info(f"Assembling {meta['total_chunks']} model chunks for upload {upload_id} → {zip_path}")
+        with open(zip_path, "wb") as out:
+            for i in range(meta["total_chunks"]):
+                with open(_model_chunk_path(upload_id, i), "rb") as cf:
+                    shutil.copyfileobj(cf, out)
+
+        relative_path = os.path.join("models", model_id, "model.zip")
+        conn.execute(
+            """INSERT INTO models (id, job_id, dataset_id, zip_path, status, created_at)
+               VALUES (?, ?, ?, ?, 'pending_approval', ?)""",
+            (model_id, job_id, dataset_id, relative_path, now)
+        )
+        conn.commit()
+
+        shutil.rmtree(_model_upload_dir(upload_id), ignore_errors=True)
+        logger.info(f"Model upload {upload_id} complete → model {model_id}")
+
         model_row = conn.execute("SELECT * FROM models WHERE id = ?", (model_id,)).fetchone()
         return dict(model_row)
     finally:
