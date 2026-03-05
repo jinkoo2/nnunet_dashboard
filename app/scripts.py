@@ -1,6 +1,7 @@
 import uvicorn
 import logging
 from app.core.logging_config import setup_logging
+from app.core.config import settings
 
 
 def run_dev():
@@ -8,7 +9,7 @@ def run_dev():
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=9333,
+        port=settings.PORT,
         reload=True,
         log_level="debug",
         reload_excludes=["_*", "*.log", "data/*"],
@@ -21,7 +22,7 @@ def run_prod():
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",
-        port=9333,
+        port=settings.PORT,
         reload=False,
         log_level="info",
     )
